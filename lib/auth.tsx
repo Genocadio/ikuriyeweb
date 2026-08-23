@@ -16,9 +16,7 @@ const NEXXAUTH_CLIENT_ID: string = process.env.NEXT_PUBLIC_NEXXAUTH_CLIENT_ID ||
 // Android app's PROACTIVE_REFRESH_THRESHOLD_SECONDS in NexxAuth.observeSession.
 const REFRESH_THRESHOLD_SECONDS = 5 * 60
 // Safety-net re-check interval when the token expiry can't be determined.
-const REFRESH_CHECK_INTERVAL_MS = 5 * 60 * 1000
-
-/** Persisted session. `refresh`/`exp` are absent for pasted access tokens. */
+const REFRESH_CHECK_INTERVAL_MS = 5 * 60 * 1000  /** Persisted session. */
 interface PersistedSession {
   access: string
   refresh: string | null
@@ -61,7 +59,6 @@ export interface AuthState {
 
 export interface AuthActions {
   login: (email: string, password: string) => Promise<void>
-  loginWithToken: (token: string) => Promise<void>
   logout: () => void
   handleSessionExpired: () => void
   /** Refresh the access token via Nexxauth. `{ token }` on success,
@@ -218,7 +215,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setState((prev) => ({ ...prev, error: null }))
       if (!NEXXAUTH_BASE_URL || !NEXXAUTH_CLIENT_ID) {
         const message =
-          'Nexxauth is not configured on this frontend. Add NEXT_PUBLIC_NEXXAUTH_BASE_URL and NEXT_PUBLIC_NEXXAUTH_CLIENT_ID, or use "Paste access token".'
+          'Nexxauth is not configured on this frontend. Add NEXT_PUBLIC_NEXXAUTH_BASE_URL and NEXT_PUBLIC_NEXXAUTH_CLIENT_ID.'
         setState((prev) => ({ ...prev, error: message }))
         throw new Error(message)
       }
@@ -246,22 +243,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       persistSession(session)
       setState((prev) => ({ ...prev, canRefresh: Boolean(session.refresh) }))
       await bootstrap(session.access)
-    },
-    [bootstrap],
-  )
-
-  const loginWithToken = useCallback(
-    async (token: string) => {
-      const clean = token.trim()
-      if (!clean) {
-        setState((prev) => ({ ...prev, error: 'Please paste an access token.' }))
-        throw new Error('Empty token')
-      }
-      // Pasted tokens carry no refresh token — auto-refresh is unavailable, so
-      // when this token expires the user re-authenticates.
-      persistSession({ access: clean, refresh: null, exp: decodeJwtExp(clean) })
-      setState((prev) => ({ ...prev, canRefresh: false }))
-      await bootstrap(clean)
     },
     [bootstrap],
   )
@@ -442,8 +423,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [state.status, state.token, state.canRefresh, refreshSession])
 
   const value = useMemo<AuthContextValue>(
-    () => ({ ...state, login, loginWithToken, logout, handleSessionExpired, refreshSession }),
-    [state, login, loginWithToken, logout, handleSessionExpired, refreshSession],
+    () => ({ ...state, login, logout, handleSessionExpired, refreshSession }),
+    [state, login, logout, handleSessionExpired, refreshSession],
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
