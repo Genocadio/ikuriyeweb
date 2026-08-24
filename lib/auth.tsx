@@ -253,7 +253,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       try {
         await fetch(`${NEXXAUTH_BASE_URL}/auth/logout`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: nexxauthHeaders(),
           body: JSON.stringify({ refreshToken: session.refresh }),
         })
       } catch {
@@ -290,7 +290,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       try {
         response = await fetch(`${NEXXAUTH_BASE_URL}/auth/refresh`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: nexxauthHeaders(),
           body: JSON.stringify({ refreshToken: session.refresh }),
         })
       } catch {
