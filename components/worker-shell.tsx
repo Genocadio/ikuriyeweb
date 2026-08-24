@@ -103,12 +103,6 @@ export function WorkerShell({ children }: { children: React.ReactNode }) {
               }}
             >
               <Bell className="size-4" />
-              {workspace.noticesRealtimeLive === false && (
-                <span
-                  className="absolute bottom-0.5 right-0.5 size-2 rounded-full border-2 border-card bg-amber-400"
-                  title="Notice feed degraded — falling back to periodic sync. Check the Supabase realtime publication/RLS setup."
-                />
-              )}
               {unread > 0 && (
                 <span className="absolute right-0.5 top-0.5 grid size-4 place-items-center rounded-full bg-[#ef8d54] text-[9px] font-bold text-white">
                   {unread > 9 ? '9+' : unread}

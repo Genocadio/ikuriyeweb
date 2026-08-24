@@ -5,16 +5,15 @@ import { toast } from 'react-toastify'
 import { isAuthError } from './client'
 import * as api from './api'
 import { subscribeGraphql } from './realtime'
-import { subscribeNotices } from './realtime-notices'
 import { useAuth } from './auth'
 import type { DeliveryPackage, Notice, Office, PackageItem, PackageStatus, Transfer, TransferRuleType, User } from './types'
 import { toPackageItem } from './api'
 
 const CODES_KEY = 'cavgo.deliveryCodes'
 const SECURE_KEY = 'cavgo.secureTransferCodes'
-// Slow safety-net sync for the operational board. Notices are NOT polled — they
-// arrive via Supabase Realtime; new packages/offers/transfers arrive via the
-// GraphQL subscription. This timer only covers changes neither realtime channel
+// Slow safety-net sync for the operational board. New packages/offers/transfers
+// arrive via the GraphQL subscription; notices arrive via the noticeCreated
+// GraphQL subscription. This timer only covers changes neither subscription
 // fires for (e.g. another worker accepting a transfer you are watching).
 const SYNC_INTERVAL_MS = 60_000
 
@@ -30,8 +29,6 @@ interface WorkspaceState {
   myTransfers: Transfer[]
   notices: Notice[]
   unread: number
-  /** null = connecting, true = Supabase Realtime live, false = degraded (periodic sync fallback) */
-  noticesRealtimeLive: boolean | null
   drivers: User[]
   offices: Office[]
   codes: Record<string, string>
@@ -102,7 +99,6 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     myTransfers: [],
     notices: [],
     unread: 0,
-    noticesRealtimeLive: null,
     drivers: [],
     offices: [],
     codes: readRecord(CODES_KEY),
@@ -170,7 +166,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     }
   }, [token, meId, patch, fail])
 
-  // Notice feed — the fetch behind the Supabase Realtime subscription.
+  // Notice feed — initial fetch + periodic sync fallback.
   const loadNotices = useCallback(async (): Promise<boolean> => {
     if (!token) return false
     try {
@@ -178,7 +174,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
       patch({ notices: noticesRes.myNotices, unread: unreadRes.unreadNoticeCount })
       return true
     } catch (error) {
-      // Silent — notices are pushed via Supabase Realtime; a failed fetch must
+      // Silent — notices are pushed via the GraphQL subscription; a failed fetch must
       // not trip the workspace error banner.
       return fail(error, false)
     }
@@ -195,19 +191,17 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     patch({ refreshing: false })
   }, [patch, loadAll])
 
-  // Initial load + slow background sync for the operational board. Notices are
-  // only refreshed here while the Supabase Realtime channel is not live — once
-  // it confirms SUBSCRIBED, notices are pushed and never polled.
+  // Initial load + slow background sync for the operational board.
   useEffect(() => {
     if (status !== 'signedIn' || !token) return
     patch({ loading: true })
     void loadAll().finally(() => patch({ loading: false }))
     const interval = window.setInterval(() => {
       if (document.hidden) return
-      void (state.noticesRealtimeLive === true ? loadWorkspace() : loadAll())
+      void loadWorkspace()
     }, SYNC_INTERVAL_MS)
     return () => window.clearInterval(interval)
-  }, [status, token, loadAll, loadWorkspace, patch, state.noticesRealtimeLive])
+  }, [status, token, loadWorkspace, patch])
 
   // GraphQL subscription — instant cue + refresh for newly created package+transfer events.
   // Reconnects with bounded backoff when the WebSocket drops.
@@ -252,29 +246,68 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     }
   }, [status, token, loadWorkspace])
 
-  // Supabase Realtime — workers subscribe directly to their own notice_viewers rows.
+  // GraphQL subscription — real-time notice feed via WebSocket (replaces Supabase Realtime).
+  // New notices are pushed instantly; falls back to the 60s polling interval on failure.
   useEffect(() => {
-    if (status !== 'signedIn' || !token || !user?.id) return
-    const unsubscribe = subscribeNotices({
-      token,
-      userId: user.id,
-      onInsert: () => {
-        void loadNotices()
-      },
-      onUpdate: () => {
-        void loadNotices() // read state changed on another device — keep the badge in sync
-      },
-      onStatus: (live, error) => {
-        if (live) {
-          console.info('[realtime] notice feed live via Supabase Realtime')
-        } else if (error) {
-          console.warn('[realtime] notice feed degraded, falling back to periodic sync:', error)
+    if (status !== 'signedIn' || !token || typeof window === 'undefined') return
+    let stop = false
+    let unsubscribe = () => {}
+    let attempts = 0
+    const connect = () => {
+      if (stop) return
+      unsubscribe()
+      unsubscribe = subscribeGraphql<{
+        noticeCreated: {
+          id: string
+          resourceType: string
+          resourceId: string
+          eventType: string
+          actorId: string | null
+          title: string
+          message: string
+          payload: string | null
+          viewer: { id: string; noticeId: string; userId: string; deliveredAt: string | null; readAt: string | null }
+          createdAt: string
         }
-        patch({ noticesRealtimeLive: live })
-      },
-    })
-    return unsubscribe
-  }, [status, token, user?.id, loadNotices, patch])
+      }>({
+        token,
+        query: `subscription NoticeCreated {
+          noticeCreated {
+            id resourceType resourceId eventType actorId title message payload
+            viewer { id noticeId userId deliveredAt readAt }
+            createdAt
+          }
+        }`,
+        onNext: (data) => {
+          const notice = data.noticeCreated
+          if (!notice) return
+          patch((prev) => {
+            // Deduplicate — the 60s sync may have already fetched this notice.
+            if (prev.notices.some((n) => n.viewer.id === notice.viewer.id)) return {}
+            return {
+              notices: [notice, ...prev.notices],
+              unread: prev.unread + 1,
+            }
+          })
+          toast.info(notice.title)
+        },
+        onError: () => {
+          if (stop) return
+          attempts += 1
+          if (attempts < 5) {
+            window.setTimeout(connect, Math.min(attempts * 4_000, 20_000))
+          } else {
+            console.warn('[realtime] notice subscription gave up after retries — using the 60s sync')
+          }
+        },
+      })
+    }
+    connect()
+    return () => {
+      stop = true
+      unsubscribe()
+    }
+  }, [status, token, patch])
 
   // ── Local key-value helpers (delivery codes / secure transfer codes) ────
 
