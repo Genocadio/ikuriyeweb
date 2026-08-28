@@ -29,7 +29,7 @@ const PACKAGE_FIELDS = `
   id trackingCode deliveryType status creatorId companyId tripId
   custodians { id userId name phone role assignedAt }
   people { id role userId name phone }
-  locations { id type latitude longitude placeName placeId officeId }
+  locations { id type latitude longitude placeName placeId officeLocationId }
   details {
     category description fragile weight length width height declaredValue
     media { id url mediaType createdAt }

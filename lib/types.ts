@@ -67,7 +67,7 @@ export interface PackageLocation {
   longitude: number
   placeName: string | null
   placeId: string | null
-  officeId: string | null
+  officeLocationId: string | null
 }
 
 export interface PackageMedia {
