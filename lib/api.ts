@@ -32,7 +32,7 @@ const PACKAGE_FIELDS = `
   locations { id type latitude longitude placeName placeId officeLocationId }
   details {
     category description fragile weight length width height declaredValue
-    media { id url mediaType createdAt }
+    media { id url mimeType }
   }
   events { id eventType actorId description createdAt }
   custody { id fromEntity toEntity timestamp notes }
@@ -364,7 +364,7 @@ export function toPackageItem(pkg: DeliveryPackage, meId: string): PackageItem {
 
   const openTransfer = pkg.transfers.find((t) => t.status === 'PENDING' || t.status === 'REQUESTED') ?? null
   const media = pkg.details?.media ?? []
-  const photos = media.filter((m) => m.mediaType === 'PICTURE').map((m) => m.url)
+  const photos = media.filter((m) => m.mimeType.startsWith('image/')).map((m) => m.url)
 
   return {
     id: pkg.id,

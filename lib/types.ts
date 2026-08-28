@@ -9,7 +9,6 @@ export type DeliveryType = 'OPEN' | 'FIXED_ROUTE'
 export type CustodianRole = 'WORKER' | 'DRIVER' | 'OFFICE' | 'RECEIVER'
 export type LocationType = 'ORIGIN' | 'DESTINATION'
 export type PersonRole = 'SENDER' | 'RECEIVER'
-export type MediaType = 'VIDEO' | 'PICTURE'
 export type SortOrder = 'ASC' | 'DESC'
 
 export type PackageStatus =
@@ -73,8 +72,7 @@ export interface PackageLocation {
 export interface PackageMedia {
   id: string
   url: string
-  mediaType: MediaType
-  createdAt: string
+  mimeType: string
 }
 
 export interface PackageDetails {
