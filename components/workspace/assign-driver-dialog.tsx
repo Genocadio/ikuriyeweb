@@ -57,7 +57,7 @@ export function AssignDriverDialog({
         <DialogHeader>
           <DialogTitle>Assign driver</DialogTitle>
           <DialogDescription>
-            <span className="font-mono">{packageCode}</span> — custody moves from your office to the driver.
+            <span className="font-mono">{packageCode}</span> — custody moves from you to the driver.
           </DialogDescription>
         </DialogHeader>
 

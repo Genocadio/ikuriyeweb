@@ -18,8 +18,8 @@ import { cn } from '@/lib/utils'
 import { CodeRevealDialog } from './dialogs'
 
 const DELIVERY_TYPES: Array<{ value: DeliveryType; label: string; hint: string }> = [
-  { value: 'OPEN', label: 'Open', hint: 'Flexible office → customer flow' },
-  { value: 'FIXED_ROUTE', label: 'Fixed route', hint: 'Office-to-office routing' },
+  { value: 'OPEN', label: 'Open', hint: 'Flexible point-to-point delivery' },
+  { value: 'FIXED_ROUTE', label: 'Fixed route', hint: 'Routed through arranged pickups' },
 ]
 
 const TRANSFER_RULES: Array<{ value: TransferRuleType | 'NONE'; label: string; hint: string }> = [
@@ -35,18 +35,19 @@ function num(value: string): number {
 }
 
 export function CreatePackageDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const { createPackage, offices } = useWorkspace()
+  const { createPackage } = useWorkspace()
   const [busy, setBusy] = useState(false)
-  // Workers start at ORIGIN_OFFICE, which only exists in the FIXED_ROUTE state
-  // machine — a worker-created OPEN package cannot advance. Default to FIXED_ROUTE.
-  const [deliveryType, setDeliveryType] = useState<DeliveryType>('FIXED_ROUTE')
+  // Workers act like drivers: an OPEN package auto-accepts into our custody, so
+  // it can start with an OPEN delivery. FIXED_ROUTE remains available for routed
+  // hand-offs. No office/company dependency is needed.
+  const [deliveryType, setDeliveryType] = useState<DeliveryType>('OPEN')
   const [ruleType, setRuleType] = useState<TransferRuleType | 'NONE'>('AUTO')
 
   const [senderName, setSenderName] = useState('')
   const [senderPhone, setSenderPhone] = useState('')
   const [receiverName, setReceiverName] = useState('')
   const [receiverPhone, setReceiverPhone] = useState('')
-  const [originName, setOriginName] = useState(offices[0]?.name ?? '')
+  const [originName, setOriginName] = useState('')
   const [originLat, setOriginLat] = useState('0')
   const [originLng, setOriginLng] = useState('0')
   const [destName, setDestName] = useState('')
@@ -140,7 +141,7 @@ export function CreatePackageDialog({ open, onClose }: { open: boolean; onClose:
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="flex flex-col gap-2">
                 <p className="text-xs font-medium text-muted-foreground">Origin</p>
-                <Input placeholder="Office / pickup name" value={originName} onChange={(event) => setOriginName(event.target.value)} />
+                <Input placeholder="Pickup name" value={originName} onChange={(event) => setOriginName(event.target.value)} />
                 <div className="grid grid-cols-2 gap-2">
                   <Input placeholder="Lat" value={originLat} onChange={(event) => setOriginLat(event.target.value)} />
                   <Input placeholder="Lng" value={originLng} onChange={(event) => setOriginLng(event.target.value)} />
@@ -148,7 +149,7 @@ export function CreatePackageDialog({ open, onClose }: { open: boolean; onClose:
               </div>
               <div className="flex flex-col gap-2">
                 <p className="text-xs font-medium text-muted-foreground">Destination</p>
-                <Input placeholder="Office / drop-off name" value={destName} onChange={(event) => setDestName(event.target.value)} />
+                <Input placeholder="Drop-off name" value={destName} onChange={(event) => setDestName(event.target.value)} />
                 <div className="grid grid-cols-2 gap-2">
                   <Input placeholder="Lat" value={destLat} onChange={(event) => setDestLat(event.target.value)} />
                   <Input placeholder="Lng" value={destLng} onChange={(event) => setDestLng(event.target.value)} />

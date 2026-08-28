@@ -4,7 +4,6 @@ import type {
   DeliveryPackage,
   DeliveryPackagePage,
   Notice,
-  Office,
   PackageCreation,
   PackageItem,
   PackageStatus,
@@ -159,12 +158,6 @@ export function fetchDrivers(token: string, query = ''): Promise<{ searchUsers: 
       token,
     },
   )
-}
-
-export function fetchOffices(): Promise<{ offices: Office[] }> {
-  return gql<{ offices: Office[] }>({
-    query: `query Offices { offices { id name contact locationId createdAt updatedAt } }`,
-  })
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

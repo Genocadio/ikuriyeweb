@@ -175,15 +175,6 @@ export interface Notice {
   createdAt: string
 }
 
-export interface Office {
-  id: string
-  name: string
-  contact: string | null
-  locationId: string | null
-  createdAt: string
-  updatedAt: string
-}
-
 export interface TransferAcceptResult {
   transfer: Transfer
   acceptedPackages: { deliveryPackage: DeliveryPackage }[]

@@ -37,7 +37,7 @@ export interface GroupMeta {
 export const GROUPS: GroupMeta[] = [
   { key: 'waiting-us', title: 'Waiting for our action', description: 'Ready to be accepted into our custody.', dot: 'bg-orange-500' },
   { key: 'waiting-others', title: 'Waiting for others', description: 'Our transfer awaits the next custodian.', dot: 'bg-violet-500' },
-  { key: 'at-office', title: 'At our office', description: 'Accepted packages that have not departed yet.', dot: 'bg-amber-500' },
+  { key: 'at-office', title: 'In our custody', description: 'Accepted packages that are with you and not yet dispatched.', dot: 'bg-amber-500' },
   { key: 'in-transit', title: 'In transit', description: 'Moving with a driver or route.', dot: 'bg-blue-500' },
   { key: 'awaiting-confirmation', title: 'Awaiting confirmation', description: 'Delivery code issued to the receiver.', dot: 'bg-orange-500' },
   { key: 'delivered', title: 'Delivered', description: 'Final handoff confirmed.', dot: 'bg-emerald-500' },

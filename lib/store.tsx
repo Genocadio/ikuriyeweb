@@ -6,7 +6,7 @@ import { isAuthError } from './client'
 import * as api from './api'
 import { subscribeGraphql } from './realtime'
 import { useAuth } from './auth'
-import type { DeliveryPackage, Notice, Office, PackageItem, PackageStatus, Transfer, TransferRuleType, User } from './types'
+import type { DeliveryPackage, Notice, PackageItem, PackageStatus, Transfer, TransferRuleType, User } from './types'
 import { toPackageItem } from './api'
 
 const CODES_KEY = 'cavgo.deliveryCodes'
@@ -30,7 +30,6 @@ interface WorkspaceState {
   notices: Notice[]
   unread: number
   drivers: User[]
-  offices: Office[]
   codes: Record<string, string>
   secureCodes: Record<string, string>
 }
@@ -100,7 +99,6 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     notices: [],
     unread: 0,
     drivers: [],
-    offices: [],
     codes: readRecord(CODES_KEY),
     secureCodes: readRecord(SECURE_KEY),
   })
@@ -136,18 +134,17 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     [handleSessionExpired, patch],
   )
 
-  // Operational data: packages, offers, transfers, drivers, offices.
+  // Operational data: packages, offers, transfers, drivers.
   const loadWorkspace = useCallback(async (): Promise<boolean> => {
     if (!token) return false
     try {
-      const [pkgRes, offersRes, pendingRes, requestedRes, mineRes, driversRes, officesRes] = await Promise.all([
+      const [pkgRes, offersRes, pendingRes, requestedRes, mineRes, driversRes] = await Promise.all([
         api.fetchMyPackages(token),
         api.fetchAvailablePackages(token),
         api.fetchTransfersByStatus(token, 'PENDING'),
         api.fetchTransfersByStatus(token, 'REQUESTED'),
         api.fetchMyTransfers(token),
         api.fetchDrivers(token),
-        api.fetchOffices(),
       ])
       patch({
         packages: pkgRes.myPackages.items.map((p) => toPackageItem(p, meId)),
@@ -156,7 +153,6 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
         requestedTransfers: requestedRes.transfersByStatus,
         myTransfers: mineRes.myTransfers,
         drivers: driversRes.searchUsers,
-        offices: officesRes.offices,
         lastSync: Date.now(),
         error: null,
       })
