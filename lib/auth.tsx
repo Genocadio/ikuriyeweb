@@ -1,7 +1,7 @@
 'use client'
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
-import { isAuthError, setAuthErrorHandler, type AuthRefreshOutcome } from './client'
+import { isAuthError, isInfraError, setAuthErrorHandler, type AuthRefreshOutcome } from './client'
 import { fetchProfile, syncCurrentUser } from './api'
 import type { Role, User } from './types'
 
@@ -45,7 +45,7 @@ interface NexxAuthResponse {
   actions: string[]
 }
 
-export type AuthStatus = 'loading' | 'signedOut' | 'signedIn' | 'denied'
+export type AuthStatus = 'loading' | 'signedOut' | 'signedIn' | 'denied' | 'unreachable'
 
 export interface AuthState {
   status: AuthStatus
@@ -61,6 +61,8 @@ export interface AuthActions {
   login: (email: string, password: string) => Promise<void>
   logout: () => void
   handleSessionExpired: () => void
+  /** Re-run bootstrap after an infrastructure failure (backend was unreachable). */
+  retryBootstrap: () => Promise<void>
   /** Refresh the access token via Nexxauth. `{ token }` on success,
    *  `{ token: null, retriable: true }` on transient network failure (session
    *  kept), `{ token: null, retriable: false }` when the refresh token was
@@ -150,16 +152,26 @@ function nexxauthHeaders(): Record<string, string> {
 }
 
 async function nexxauthPost<T>(path: string, body: Record<string, unknown>): Promise<T> {
-  const res = await fetch(`${NEXXAUTH_BASE_URL}${path}`, {
-    method: 'POST',
-    headers: nexxauthHeaders(),
-    body: JSON.stringify(body),
-  })
+  let res: Response
+  try {
+    res = await fetch(`${NEXXAUTH_BASE_URL}${path}`, {
+      method: 'POST',
+      headers: nexxauthHeaders(),
+      body: JSON.stringify(body),
+    })
+  } catch {
+    throw new Error(
+      "We couldn't reach the sign-in service. Check your connection and try again — if this keeps happening, the service may be temporarily unavailable.",
+    )
+  }
   const json = (await res.json().catch(() => ({}))) as Record<string, unknown> & {
     message?: string
     error?: string
   }
   if (!res.ok) {
+    if (res.status >= 500) {
+      throw new Error('The sign-in service is temporarily unavailable. Please try again shortly.')
+    }
     throw new Error(json.message || json.error || `Nexxauth request failed (HTTP ${res.status})`)
   }
   return json as T
@@ -195,14 +207,33 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }))
     } catch (error) {
       if (isAuthError(error)) {
+        // The token was rejected — the session is genuinely dead.
         clearStored()
         setState((prev) => ({ ...prev, status: 'signedOut', token: null, user: null, error: null, canRefresh: false }))
-      } else {
+      } else if (isInfraError(error)) {
+        // Backend unreachable / CORS / 5xx — a connectivity problem, NOT a role
+        // or auth problem. Keep the stored session so a retry can pick up where
+        // we left off, but surface a "come back later" state instead of
+        // misleadingly appearing signed in with no role.
         setState((prev) => ({
           ...prev,
-          status: 'signedIn',
+          status: 'unreachable',
           token,
-          error: error instanceof Error ? error.message : 'Failed to load your profile',
+          user: null,
+          canRefresh: Boolean(parseSession()?.refresh),
+          error: error instanceof Error ? error.message : "We couldn't reach the CavGo service.",
+        }))
+      } else {
+        // Any other failure while establishing the session (e.g. a 4xx GraphQL
+        // error) still leaves us without a usable profile. Surface a retryable
+        // state rather than a half-broken "signed in" shell with no user.
+        setState((prev) => ({
+          ...prev,
+          status: 'unreachable',
+          token,
+          user: null,
+          canRefresh: Boolean(parseSession()?.refresh),
+          error: error instanceof Error ? error.message : "We couldn't load your profile.",
         }))
       }
     } finally {
@@ -339,6 +370,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, [])
 
+  const retryBootstrap = useCallback(async () => {
+    const stored = parseSession()
+    if (!stored) return
+    setState((prev) => ({ ...prev, status: 'loading', error: null }))
+    const exp = stored.exp ?? decodeJwtExp(stored.access)
+    if (stored.refresh && (exp == null || exp <= Date.now() / 1000)) {
+      const outcome = await refreshSession()
+      if (outcome.token) {
+        await bootstrap(outcome.token)
+      } else if (outcome.retriable) {
+        await bootstrap(stored.access)
+      }
+      // rejected → refreshSession already signed the user out
+      return
+    }
+    await bootstrap(stored.access)
+  }, [bootstrap, refreshSession])
+
   // Restore session on mount (access token + optional refresh token). If the
   // access token expired while the tab was closed, refresh it first so a
   // returning worker is not bounced to the login screen.
@@ -423,8 +472,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [state.status, state.token, state.canRefresh, refreshSession])
 
   const value = useMemo<AuthContextValue>(
-    () => ({ ...state, login, logout, handleSessionExpired, refreshSession }),
-    [state, login, logout, handleSessionExpired, refreshSession],
+    () => ({ ...state, login, logout, handleSessionExpired, refreshSession, retryBootstrap }),
+    [state, login, logout, handleSessionExpired, refreshSession, retryBootstrap],
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

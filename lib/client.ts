@@ -41,6 +41,25 @@ export function isAuthError(error: unknown): boolean {
 }
 
 /**
+ * True when the request failed for an infrastructure/connectivity reason rather
+ * than a business-logic or auth reason — the backend is unreachable, not
+ * responding, blocked by CORS, or returned a 5xx. These are transient and
+ * should surface as a "come back later / retry" message, NOT as a sign-in
+ * failure or a role problem.
+ *
+ * - status 0: fetch threw (network down, connection refused, DNS, or a CORS
+ *   rejection — the browser never delivered an HTTP response).
+ * - status >= 500: server error / gateway timeout.
+ * - ApiError with a thrown network message but no GraphQL payload.
+ */
+export function isInfraError(error: unknown): boolean {
+  if (!(error instanceof ApiError)) return false
+  if (error.status === 0) return true
+  if (error.status >= 500) return true
+  return error.graphqlErrors.length === 0 && error.code === undefined
+}
+
+/**
  * Outcome of an auth-layer refresh attempt. `token` is the fresh access token
  * on success. `retriable` is true when the refresh failed for a transient
  * reason (network) — the session is still valid, just not refreshable right

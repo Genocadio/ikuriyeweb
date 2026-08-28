@@ -14,7 +14,7 @@ import { displayName, initials, timeAgo } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
 export function WorkerShell({ children }: { children: React.ReactNode }) {
-  const { status, user, logout } = useAuth()
+  const { status, user, logout, error: authError, retryBootstrap } = useAuth()
   const workspace = useWorkspace()
   const [noticeOpen, setNoticeOpen] = useState(false)
   const [profileOpen, setProfileOpen] = useState(false)
@@ -39,18 +39,71 @@ export function WorkerShell({ children }: { children: React.ReactNode }) {
     )
   }
 
-  if (!user || !ALLOWED_PORTAL_ROLES.includes(user.role)) {
+  if (status === 'unreachable') {
+    return (
+      <div className="grid min-h-screen place-items-center bg-background p-4">
+        <div className="w-full max-w-sm rounded-2xl border border-border bg-card p-6 text-center shadow-sm">
+          <span className="mx-auto grid size-12 place-items-center rounded-xl bg-[#f07c42] text-xl font-black text-white">
+            C
+          </span>
+          <h1 className="mt-4 text-base font-semibold">We can&apos;t reach CavGo right now</h1>
+          <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+            {authError ??
+              "The CavGo service isn't responding. This is usually temporary — please try again in a moment. Your session has been saved."}
+          </p>
+          <div className="mt-5 flex flex-col gap-2">
+            <Button
+              className="h-9 w-full gap-2 bg-[#1f2523] text-white hover:bg-[#343b37]"
+              onClick={() => void retryBootstrap()}
+            >
+              <RefreshCcw className="size-3.5" /> Try again
+            </Button>
+            <Button variant="outline" className="h-9 w-full gap-2" onClick={logout}>
+              <LogOut className="size-3.5" /> Log out
+            </Button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  if (!user) {
+    return (
+      <div className="grid min-h-screen place-items-center bg-background p-4">
+        <div className="w-full max-w-sm rounded-2xl border border-border bg-card p-6 text-center shadow-sm">
+          <h1 className="mt-4 text-base font-semibold">We can&apos;t reach CavGo right now</h1>
+          <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+            {authError ??
+              "The CavGo service isn't responding. This is usually temporary — please try again in a moment."}
+          </p>
+          <div className="mt-5 flex flex-col gap-2">
+            <Button
+              className="h-9 w-full gap-2 bg-[#1f2523] text-white hover:bg-[#343b37]"
+              onClick={() => void retryBootstrap()}
+            >
+              <RefreshCcw className="size-3.5" /> Try again
+            </Button>
+            <Button variant="outline" className="h-9 w-full gap-2" onClick={logout}>
+              <LogOut className="size-3.5" /> Log out
+            </Button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  if (!ALLOWED_PORTAL_ROLES.includes(user.role)) {
     return (
       <div className="grid min-h-screen place-items-center bg-background p-4">
         <div className="w-full max-w-sm rounded-2xl border border-border bg-card p-6 text-center shadow-sm">
           <span className="mx-auto grid size-12 place-items-center rounded-xl bg-muted text-lg font-bold text-muted-foreground">
-            {user ? initials(user.firstName) : '?'}
+            {initials(user.firstName)}
           </span>
           <h1 className="mt-4 text-base font-semibold">Worker access required</h1>
           <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
-            {user?.email ?? 'This account'} is signed in with role{' '}
-            <span className="font-mono font-semibold">{user?.role ?? 'UNKNOWN'}</span>. The worker console is available
-            to <span className="font-mono">WORKER</span> and <span className="font-mono">DRIVER</span> accounts. Ask a
+            {user.email ?? 'This account'} is signed in with role{' '}
+            <span className="font-mono font-semibold">{user.role}</span>. The worker console is available to{' '}
+            <span className="font-mono">WORKER</span> and <span className="font-mono">DRIVER</span> accounts. Ask a
             CavGo administrator to assign the role.
           </p>
           <Button className="mt-5 h-9 w-full gap-2 bg-[#1f2523] text-white hover:bg-[#343b37]" onClick={logout}>
