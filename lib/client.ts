@@ -6,7 +6,9 @@
 export const API_URL: string =
   process.env.NEXT_PUBLIC_API_URL?.replace(/\/+$/, '') || 'http://localhost:8080'
 
-export const GRAPHQL_ENDPOINT = `${API_URL}/graphql`
+export const GRAPHQL_ENDPOINT = API_URL.endsWith('/graphql')
+  ? API_URL
+  : `${API_URL}/graphql`
 
 export interface GraphqlErrorShape {
   message: string
