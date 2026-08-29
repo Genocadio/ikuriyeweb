@@ -82,6 +82,7 @@ export type PackageAction =
   | { kind: 'reject-request' }
   | { kind: 'regenerate-transfer-code' }
   | { kind: 'cancel-transfer' }
+  | { kind: 'create-transfer' } // CREATED/ORIGIN_OFFICE, no open transfer → create transfer for drivers
   | { kind: 'assign-driver' }
   | { kind: 'mark-in-transit' }
   | { kind: 'arrive-destination' }
@@ -97,7 +98,7 @@ export function actionsForPackage(item: PackageItem, meId: string): PackageActio
 
   if (item.status === 'CREATED') {
     const t = item.openTransfer
-    if (!t) return [{ kind: 'claim' }]
+    if (!t) return isMine ? [{ kind: 'create-transfer' }] : [] // no open transfer → worker can create one to send to drivers
     if (t.creatorId === meId) {
       if (t.status === 'REQUESTED') {
         return t.requestorId ? [{ kind: 'approve-request' }, { kind: 'reject-request' }] : []
@@ -120,7 +121,9 @@ export function actionsForPackage(item: PackageItem, meId: string): PackageActio
 
   switch (item.status) {
     case 'ORIGIN_OFFICE':
-      return [{ kind: 'assign-driver' }, { kind: 'cancel-package' }]
+      return item.openTransfer
+        ? [{ kind: 'assign-driver' }, { kind: 'cancel-package' }]
+        : [{ kind: 'create-transfer' }, { kind: 'assign-driver' }, { kind: 'cancel-package' }]
     case 'ACCEPTED':
       return item.deliveryType === 'OPEN'
         ? [{ kind: 'assign-driver' }, { kind: 'start-delivery' }, { kind: 'cancel-package' }]

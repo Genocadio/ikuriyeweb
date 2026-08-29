@@ -116,13 +116,6 @@ export function WorkerShell({ children }: { children: React.ReactNode }) {
 
   const name = displayName(user)
   const unread = workspace.unread
-  const liveState =
-    workspace.error && workspace.lastSync == null
-      ? { tone: 'text-red-600 bg-red-50 border-red-200', label: 'Offline', dot: 'bg-red-500' }
-      : workspace.refreshing
-        ? { tone: 'text-amber-700 bg-amber-50 border-amber-200', label: 'Syncing', dot: 'bg-amber-500' }
-        : { tone: 'text-emerald-700 bg-emerald-50 border-emerald-200', label: 'Live', dot: 'bg-emerald-500' }
-
   return (
     <div className="min-h-screen bg-background text-foreground">
       <ToastContainer position="top-right" autoClose={3200} newestOnTop theme="light" toastClassName="font-sans text-sm" />
@@ -136,15 +129,6 @@ export function WorkerShell({ children }: { children: React.ReactNode }) {
         </Link>
 
         <div className="flex items-center gap-2 sm:gap-3">
-          <Badge
-            variant="outline"
-            title={workspace.lastSync ? `Last synced ${timeAgo(new Date(workspace.lastSync).toISOString())}` : 'Not synced yet'}
-            className={cn('hidden items-center gap-2 border font-mono text-[10px] uppercase tracking-wider sm:flex', liveState.tone)}
-          >
-            <span className={cn('size-1.5 animate-pulse rounded-full', liveState.dot)} />
-            {liveState.label}
-          </Badge>
-
           <div className="relative">
             <button
               className="relative grid size-9 place-items-center rounded-full border border-border bg-card text-muted-foreground"

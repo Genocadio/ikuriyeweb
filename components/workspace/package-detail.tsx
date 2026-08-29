@@ -31,6 +31,7 @@ import { formatTimestamp, timeAgo } from '@/lib/format'
 import type { PackageItem } from '@/lib/types'
 import { cn } from '@/lib/utils'
 import { AssignDriverDialog } from './assign-driver-dialog'
+import { DriverPickerDialog } from './driver-picker-dialog'
 import { CodePromptDialog, CodeRevealDialog, ConfirmDialog } from './dialogs'
 
 const ACTION_LABEL: Record<PackageAction['kind'], string> = {
@@ -42,6 +43,7 @@ const ACTION_LABEL: Record<PackageAction['kind'], string> = {
   'reject-request': 'Reject request',
   'regenerate-transfer-code': 'Regenerate transfer code',
   'cancel-transfer': 'Cancel transfer',
+  'create-transfer': 'Create transfer',
   'assign-driver': 'Assign driver',
   'mark-in-transit': 'Mark in transit',
   'arrive-destination': 'Arrived at destination office',
@@ -60,6 +62,7 @@ export function PackageDetail({ item, onClose }: { item: PackageItem | null; onC
   const [codePrompt, setCodePrompt] = useState<{ title: string; description?: string; label?: string; initialValue?: string; onSubmit: (code: string) => Promise<void> } | null>(null)
   const [reveal, setReveal] = useState<{ title: string; description?: string; code: string } | null>(null)
   const [assignOpen, setAssignOpen] = useState(false)
+  const [createTransferOpen, setCreateTransferOpen] = useState(false)
   const [busy, setBusy] = useState(false)
 
   if (!item) {
@@ -109,7 +112,7 @@ export function PackageDetail({ item, onClose }: { item: PackageItem | null; onC
       case 'claim':
         setConfirm({
           title: `Claim ${code}?`,
-          description: 'Creates an AUTO transfer for this package and accepts it into your custody.',
+          description: 'Accepts the open transfer for this package into your custody.',
           label: 'Claim package',
           run: () => workspace.claimPackage(pkg.id),
         })
@@ -139,6 +142,9 @@ export function PackageDetail({ item, onClose }: { item: PackageItem | null; onC
         break
       case 'cancel-transfer':
         setConfirm({ title: 'Cancel this transfer?', description: 'Packages stay with the current custodian.', run: () => workspace.cancelTransfer(t!.id) })
+        break
+      case 'create-transfer':
+        setCreateTransferOpen(true)
         break
       case 'assign-driver':
         setAssignOpen(true)
@@ -377,6 +383,7 @@ export function PackageDetail({ item, onClose }: { item: PackageItem | null; onC
                   )}
                   onClick={() => void runAction(action)}
                 >
+                  {ACTION_LABEL[action.kind] === 'Create transfer' && <Truck className="size-3.5" />}
                   {ACTION_LABEL[action.kind] === 'Assign driver' && <Truck className="size-3.5" />}
                   {ACTION_LABEL[action.kind] === 'Start delivery' && <Send className="size-3.5" />}
                   {ACTION_LABEL[action.kind] === 'Claim package' && <PackageCheck className="size-3.5" />}
@@ -421,6 +428,15 @@ export function PackageDetail({ item, onClose }: { item: PackageItem | null; onC
         packageId={item.id}
         packageCode={item.trackingCode}
         onClose={() => setAssignOpen(false)}
+      />
+      <DriverPickerDialog
+        open={createTransferOpen}
+        title={`Create transfer for ${item.trackingCode}`}
+        description="Select a driver who will pick up this package. A transfer will be created for them."
+        onConfirm={async (driverId) => {
+          await workspace.createTransferForPackages([pkg.id], 'AUTO', driverId)
+        }}
+        onClose={() => setCreateTransferOpen(false)}
       />
     </>
   )

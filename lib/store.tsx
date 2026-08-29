@@ -48,7 +48,7 @@ interface WorkspaceActions {
   initiateDelivery: (packageId: string) => Promise<string>
   confirmDelivery: (packageId: string, deliveryCode: string) => Promise<void>
   regenerateDeliveryCode: (packageId: string) => Promise<string>
-  createTransferForPackages: (packageIds: string[], ruleType: TransferRuleType) => Promise<Transfer>
+  createTransferForPackages: (packageIds: string[], ruleType: TransferRuleType, matchUserId?: string | null) => Promise<Transfer>
   cancelTransfer: (transferId: string) => Promise<void>
   confirmTransfer: (transferId: string) => Promise<void>
   rejectTransfer: (transferId: string) => Promise<void>
@@ -355,19 +355,18 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
   const claimPackage = useCallback(
     async (packageId: string) => {
       await runMutation(async () => {
-        // Check if the package already has an open transfer from another user —
-        // accept it directly instead of creating a duplicate.
+        // Accept an existing transfer offer on this package.
+        // The offers list is pre-filtered to only include packages with an active transfer,
+        // so there should always be one to accept.
         const existing = state.offers
           .find((o) => o.id === packageId)
           ?.transfers.find((t) => t.status === 'PENDING' || t.status === 'REQUESTED')
-        if (existing) {
-          await api.acceptTransfer(token!, existing.id)
-        } else {
-          const { createTransfer } = await api.createTransfer(token!, [packageId], 'AUTO')
-          await api.acceptTransfer(token!, createTransfer.id)
+        if (!existing) {
+          throw new Error('No active transfer found for this package')
         }
+        await api.acceptTransfer(token!, existing.id)
       })
-      toast.success('Package claimed into your custody')
+      toast.success('Transfer accepted — package added to your custody')
     },
     [token, runMutation, state.offers],
   )
@@ -439,8 +438,10 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
   )
 
   const createTransferForPackages = useCallback(
-    async (packageIds: string[], ruleType: TransferRuleType) => {
-      const result = await runMutation(() => api.createTransfer(token!, packageIds, ruleType))
+    async (packageIds: string[], ruleType: TransferRuleType, matchUserId?: string | null) => {
+      const result = await runMutation(() =>
+        api.createTransfer(token!, packageIds, ruleType, 'DRIVER', matchUserId)
+      )
       return result.createTransfer
     },
     [token, runMutation],

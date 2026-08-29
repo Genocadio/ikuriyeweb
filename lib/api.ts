@@ -212,13 +212,19 @@ export function createPackage(token: string, input: CreatePackageInput): Promise
   )
 }
 
-export function createTransfer(token: string, packageIds: string[], ruleType: TransferRuleType): Promise<{ createTransfer: Transfer }> {
+export function createTransfer(
+  token: string,
+  packageIds: string[],
+  ruleType: TransferRuleType,
+  acceptorType?: 'WORKER' | 'DRIVER' | 'BOTH',
+  matchUserId?: string | null
+): Promise<{ createTransfer: Transfer }> {
   return gql<{ createTransfer: Transfer }>(
     {
       query: `mutation CreateTransfer($input: CreateTransferInput!) {
         createTransfer(input: $input) { ${TRANSFER_FIELDS} }
       }`,
-      variables: { input: { packageIds, ruleType } },
+      variables: { input: { packageIds, ruleType, acceptorType: acceptorType ?? null, matchUserId: matchUserId ?? null } },
       token,
     },
   )

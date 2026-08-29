@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { Loader2, PackagePlus } from 'lucide-react'
+import { Loader2, PackagePlus, UserRound, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -16,6 +16,7 @@ import { useWorkspace } from '@/lib/store'
 import type { DeliveryType, TransferRuleType } from '@/lib/types'
 import { cn } from '@/lib/utils'
 import { CodeRevealDialog } from './dialogs'
+import { DriverPickerDialog } from './driver-picker-dialog'
 
 const TRANSFER_RULES: Array<{ value: TransferRuleType | 'NONE'; label: string; hint: string }> = [
   { value: 'NONE', label: 'No transfer', hint: 'Package stays in your custody' },
@@ -30,11 +31,15 @@ function num(value: string): number {
 }
 
 export function CreatePackageDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const { createPackage } = useWorkspace()
+  const workspace = useWorkspace()
+  const { createPackage, drivers } = workspace
   const [busy, setBusy] = useState(false)
   // Web always creates FIXED_ROUTE packages (the Android app handles OPEN).
   const deliveryType: DeliveryType = 'FIXED_ROUTE'
   const [ruleType, setRuleType] = useState<TransferRuleType | 'NONE'>('AUTO')
+  const [matchDriverId, setMatchDriverId] = useState<string | null>(null)
+  const [matchDriverName, setMatchDriverName] = useState<string | null>(null)
+  const [driverPickerOpen, setDriverPickerOpen] = useState(false)
 
   const [senderName, setSenderName] = useState('')
   const [senderPhone, setSenderPhone] = useState('')
@@ -72,6 +77,7 @@ export function CreatePackageDialog({ open, onClose }: { open: boolean; onClose:
           fragile: fragile || null,
         },
         transferRuleType: ruleType === 'NONE' ? null : ruleType,
+        transferMatchUserId: matchDriverId ?? null,
       })
       // Only a SECURE transfer produces a code worth revealing — NONE/AUTO
       // have nothing to show, so keep the dialog closed for those.
@@ -152,7 +158,14 @@ export function CreatePackageDialog({ open, onClose }: { open: boolean; onClose:
                 {TRANSFER_RULES.map((rule) => (
                   <button
                     key={rule.value}
-                    onClick={() => setRuleType(rule.value)}
+                    onClick={() => {
+                      setRuleType(rule.value)
+                      // Clear driver selection when switching to no transfer
+                      if (rule.value === 'NONE') {
+                        setMatchDriverId(null)
+                        setMatchDriverName(null)
+                      }
+                    }}
                     className={cn(
                       'rounded-xl border p-3 text-left transition-colors',
                       ruleType === rule.value ? 'border-[#1f2523] bg-[#1f2523] text-white' : 'border-border hover:bg-muted/50',
@@ -165,6 +178,32 @@ export function CreatePackageDialog({ open, onClose }: { open: boolean; onClose:
                   </button>
                 ))}
               </div>
+
+              {ruleType !== 'NONE' && (
+                <div className="mt-1">
+                  <p className="mb-1.5 text-[10px] font-medium text-muted-foreground">Assign to driver (optional)</p>
+                  {matchDriverId ? (
+                    <div className="flex items-center gap-2 rounded-xl border border-border bg-muted/30 px-3 py-2">
+                      <UserRound className="size-3.5 text-muted-foreground" />
+                      <span className="flex-1 truncate text-xs font-medium">{matchDriverName}</span>
+                      <button
+                        onClick={() => { setMatchDriverId(null); setMatchDriverName(null) }}
+                        className="grid size-5 place-items-center rounded-md text-muted-foreground hover:bg-muted"
+                      >
+                        <X className="size-3" />
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => setDriverPickerOpen(true)}
+                      className="flex w-full items-center gap-2 rounded-xl border border-dashed border-border p-2.5 text-left text-xs text-muted-foreground hover:bg-muted/50"
+                    >
+                      <UserRound className="size-3.5" />
+                      Pick a driver…
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
           </div>
 
@@ -185,6 +224,17 @@ export function CreatePackageDialog({ open, onClose }: { open: boolean; onClose:
         </DialogContent>
       </Dialog>
 
+      <DriverPickerDialog
+        open={driverPickerOpen}
+        title="Select driver"
+        description="Choose a driver to pick up this package. They will receive a transfer request."
+        onConfirm={async (id) => {
+          const driver = drivers.find((d) => d.id === id)
+          setMatchDriverId(id)
+          setMatchDriverName(driver ? (driver.firstName ?? driver.email) : 'Driver')
+        }}
+        onClose={() => setDriverPickerOpen(false)}
+      />
       <CodeRevealDialog
         open={Boolean(reveal)}
         title="Secure transfer code — save this once"

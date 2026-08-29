@@ -32,9 +32,18 @@ export function CustodyInbox() {
   const [codePrompt, setCodePrompt] = useState<{ transfer: Transfer; title: string; description?: string } | null>(null)
   const [reveal, setReveal] = useState<{ title: string; description?: string; code: string } | null>(null)
 
-  const incoming = workspace.pendingTransfers.filter((transfer) => transfer.creatorId !== meId)
+  // Only show transfers initiated by drivers (acceptorType=WORKER) —
+  // worker→driver transfers show in the mobile app, not here.
+  const incoming = workspace.pendingTransfers.filter(
+    (transfer) => transfer.creatorId !== meId && transfer.acceptorType === 'WORKER'
+  )
   const requestedByMe = workspace.requestedTransfers.filter((transfer) => transfer.requestorId === meId)
-  const offerCount = workspace.offers.length
+  // Only show offers that have an active transfer — client packages with no transfer
+  // are not transfer offers and should not appear here.
+  const transferOffers = workspace.offers.filter((offer) =>
+    offer.transfers.some((t) => t.status === 'PENDING' || t.status === 'REQUESTED')
+  )
+  const offerCount = transferOffers.length
   const badgeCount = incoming.length + requestedByMe.length
 
   async function acceptAuto(transfer: Transfer) {
@@ -181,12 +190,13 @@ export function CustodyInbox() {
 
               {tab === 'offers' && (
                 <div className="flex flex-col gap-2">
-                  {workspace.offers.length === 0 ? (
-                    <p className="px-2 py-6 text-center text-xs text-muted-foreground">No unclaimed packages right now.</p>
+                  {transferOffers.length === 0 ? (
+                    <p className="px-2 py-6 text-center text-xs text-muted-foreground">No transfer offers right now.</p>
                   ) : (
-                    workspace.offers.map((offer) => {
+                    transferOffers.map((offer) => {
                       const receiver = offer.people.find((person) => person.role === 'RECEIVER')
                       const destination = offer.locations.find((location) => location.type === 'DESTINATION')
+                      const activeTransfer = offer.transfers.find((t) => t.status === 'PENDING' || t.status === 'REQUESTED')
                       return (
                         <div key={offer.id} className="rounded-xl border border-border p-3">
                           <div className="flex items-start justify-between gap-3">
@@ -201,6 +211,11 @@ export function CustodyInbox() {
                           <p className="mt-2 text-[10px] text-muted-foreground">
                             Created {timeAgo(offer.createdAt)} · {offer.deliveryType}
                           </p>
+                          {activeTransfer && (
+                            <p className="mt-1 text-[10px] text-muted-foreground">
+                              Transfer: {TRANSFER_RULE_LABEL[activeTransfer.ruleType] ?? activeTransfer.ruleType} · {TRANSFER_STATUS_LABEL[activeTransfer.status] ?? activeTransfer.status}
+                            </p>
+                          )}
                           <div className="mt-3 flex gap-2">
                             <Button size="sm" variant="outline" className="flex-1" disabled>
                               View details
@@ -212,7 +227,7 @@ export function CustodyInbox() {
                               onClick={() => void claim(offer.id)}
                             >
                               {busyId === offer.id ? <Loader2 className="size-3.5 animate-spin" /> : <Check className="size-3.5" />}
-                              Claim
+                              Accept
                             </Button>
                           </div>
                         </div>
