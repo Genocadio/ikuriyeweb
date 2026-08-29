@@ -355,12 +355,21 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
   const claimPackage = useCallback(
     async (packageId: string) => {
       await runMutation(async () => {
-        const { createTransfer } = await api.createTransfer(token!, [packageId], 'AUTO')
-        await api.acceptTransfer(token!, createTransfer.id)
+        // Check if the package already has an open transfer from another user —
+        // accept it directly instead of creating a duplicate.
+        const existing = state.offers
+          .find((o) => o.id === packageId)
+          ?.transfers.find((t) => t.status === 'PENDING' || t.status === 'REQUESTED')
+        if (existing) {
+          await api.acceptTransfer(token!, existing.id)
+        } else {
+          const { createTransfer } = await api.createTransfer(token!, [packageId], 'AUTO')
+          await api.acceptTransfer(token!, createTransfer.id)
+        }
       })
       toast.success('Package claimed into your custody')
     },
-    [token, runMutation],
+    [token, runMutation, state.offers],
   )
 
   const createPackage = useCallback(

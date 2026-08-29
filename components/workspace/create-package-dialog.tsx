@@ -17,11 +17,6 @@ import type { DeliveryType, TransferRuleType } from '@/lib/types'
 import { cn } from '@/lib/utils'
 import { CodeRevealDialog } from './dialogs'
 
-const DELIVERY_TYPES: Array<{ value: DeliveryType; label: string; hint: string }> = [
-  { value: 'OPEN', label: 'Open', hint: 'Flexible point-to-point delivery' },
-  { value: 'FIXED_ROUTE', label: 'Fixed route', hint: 'Routed through arranged pickups' },
-]
-
 const TRANSFER_RULES: Array<{ value: TransferRuleType | 'NONE'; label: string; hint: string }> = [
   { value: 'NONE', label: 'No transfer', hint: 'Package stays in your custody' },
   { value: 'AUTO', label: 'Auto', hint: 'Anyone can accept' },
@@ -37,10 +32,8 @@ function num(value: string): number {
 export function CreatePackageDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { createPackage } = useWorkspace()
   const [busy, setBusy] = useState(false)
-  // Workers act like drivers: an OPEN package auto-accepts into our custody, so
-  // it can start with an OPEN delivery. FIXED_ROUTE remains available for routed
-  // hand-offs. No office/company dependency is needed.
-  const [deliveryType, setDeliveryType] = useState<DeliveryType>('OPEN')
+  // Web always creates FIXED_ROUTE packages (the Android app handles OPEN).
+  const deliveryType: DeliveryType = 'FIXED_ROUTE'
   const [ruleType, setRuleType] = useState<TransferRuleType | 'NONE'>('AUTO')
 
   const [senderName, setSenderName] = useState('')
@@ -106,25 +99,6 @@ export function CreatePackageDialog({ open, onClose }: { open: boolean; onClose:
           </DialogHeader>
 
           <div className="flex flex-col gap-5">
-            <div className="flex flex-col gap-2">
-              <p className="text-xs font-medium text-muted-foreground">Delivery type</p>
-              <div className="grid grid-cols-2 gap-2">
-                {DELIVERY_TYPES.map((type) => (
-                  <button
-                    key={type.value}
-                    onClick={() => setDeliveryType(type.value)}
-                    className={cn(
-                      'rounded-xl border p-3 text-left transition-colors',
-                      deliveryType === type.value ? 'border-[#f07c42] bg-orange-50/70' : 'border-border hover:bg-muted/50',
-                    )}
-                  >
-                    <p className="text-xs font-semibold">{type.label}</p>
-                    <p className="mt-1 text-[10px] leading-relaxed text-muted-foreground">{type.hint}</p>
-                  </button>
-                ))}
-              </div>
-            </div>
-
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="flex flex-col gap-2">
                 <p className="text-xs font-medium text-muted-foreground">Sender</p>
