@@ -57,15 +57,6 @@ export function fetchProfile(token: string): Promise<MyProfileData> {
   )
 }
 
-export function syncCurrentUser(token: string): Promise<{ syncUser: User }> {
-  return gql<{ syncUser: User }>(
-    {
-      query: `mutation SyncUser { syncUser { id email phone firstName lastName username role status } }`,
-      token,
-    },
-  )
-}
-
 export interface PackagesData {
   myPackages: DeliveryPackagePage
 }

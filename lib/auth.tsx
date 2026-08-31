@@ -2,10 +2,11 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { isAuthError, isInfraError, setAuthErrorHandler, type AuthRefreshOutcome } from './client'
-import { fetchProfile, syncCurrentUser } from './api'
+import { fetchProfile } from './api'
 import type { Role, User } from './types'
 
 const SESSION_KEY = 'cavgo.session'
+const USER_KEY = 'cavgo.user'
 
 export const ALLOWED_PORTAL_ROLES: Role[] = ['WORKER', 'DRIVER']
 
@@ -34,6 +35,7 @@ interface NexxAuthOrgUser {
   enabled: boolean
   roles: string[]
   authTypes: string[]
+  createdAt?: string
 }
 
 interface NexxAuthResponse {
@@ -125,6 +127,35 @@ function persistSession(session: PersistedSession) {
   writeStored(JSON.stringify(session))
 }
 
+/** Persist the user profile from the Nexxauth login/refresh response. */
+function persistUser(user: User) {
+  try {
+    localStorage.setItem(USER_KEY, JSON.stringify(user))
+  } catch {
+    /* storage unavailable */
+  }
+}
+
+/** Read the cached user profile. */
+function readStoredUser(): User | null {
+  if (typeof window === 'undefined') return null
+  try {
+    const raw = localStorage.getItem(USER_KEY)
+    if (!raw) return null
+    return JSON.parse(raw) as User
+  } catch {
+    return null
+  }
+}
+
+function clearStoredUser() {
+  try {
+    localStorage.removeItem(USER_KEY)
+  } catch {
+    /* ignore */
+  }
+}
+
 /** Decode the JWT payload to read the `exp` claim (Unix seconds). */
 function decodeJwtExp(token: string): number | null {
   try {
@@ -195,8 +226,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (bootstrapping.current) return
     bootstrapping.current = true
     try {
-      // Ensure the local user row exists (first login) and fetch the profile.
-      await syncCurrentUser(token)
+      // Fetch the profile — the backend auto-syncs from Nexxauth when
+      // the JWT's dataHash doesn't match the stored value.
       const { myProfile } = await fetchProfile(token)
       setState((prev) => ({
         ...prev,
@@ -250,32 +281,53 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setState((prev) => ({ ...prev, error: message }))
         throw new Error(message)
       }
-      let session: { access: string; refresh: string | null; exp: number | null }
+      let data: NexxAuthResponse
       try {
-        const data = await nexxauthPost<NexxAuthResponse>('/auth/login', {
+        data = await nexxauthPost<NexxAuthResponse>('/auth/login', {
           identifier: email.trim(),
           identifierType: 'EMAIL',
           authType: 'PASSWORD',
           password,
         })
-        session = {
-          access: data.accessToken,
-          refresh: data.refreshToken,
-          exp:
-            typeof data.expiresInSeconds === 'number'
-              ? Math.floor(Date.now() / 1000 + data.expiresInSeconds)
-              : null,
-        }
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Sign-in failed'
         setState((prev) => ({ ...prev, error: message }))
         throw error
       }
+      const session = {
+        access: data.accessToken,
+        refresh: data.refreshToken,
+        exp:
+          typeof data.expiresInSeconds === 'number'
+            ? Math.floor(Date.now() / 1000 + data.expiresInSeconds)
+            : null,
+      }
       persistSession(session)
       setState((prev) => ({ ...prev, canRefresh: Boolean(session.refresh) }))
-      await bootstrap(session.access)
+      // Nexxauth response includes the full user object with roles —
+      // use it directly for UI routing instead of fetching from backend.
+      const user: User = {
+        id: String(data.user.id),
+        email: data.user.email ?? '',
+        phone: data.user.phone ?? null,
+        firstName: data.user.firstName ?? null,
+        lastName: data.user.lastName ?? null,
+        username: data.user.username ?? null,
+        role: data.user.roles?.[0]?.toUpperCase()?.replace('-', '_') as Role ?? 'CUSTOMER',
+        status: data.user.enabled ? 'ACTIVE' : 'DISABLED',
+        createdAt: data.user.createdAt ?? new Date().toISOString(),
+        updatedAt: data.user.createdAt ?? new Date().toISOString(),
+      }
+      persistUser(user)
+      setState((prev) => ({
+        ...prev,
+        status: 'signedIn',
+        token: data.accessToken,
+        user,
+        error: null,
+      }))
     },
-    [bootstrap],
+    [],
   )
 
   const logout = useCallback(async () => {
@@ -292,12 +344,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     }
     clearStored()
+    clearStoredUser()
     setState((prev) => ({ ...prev, status: 'signedOut', token: null, user: null, error: null, canRefresh: false }))
   }, [])
 
   const handleSessionExpired = useCallback(() => {
     if (state.status !== 'signedIn') return
     clearStored()
+    clearStoredUser()
     setState((prev) => ({
       ...prev,
       status: 'signedOut',
@@ -358,7 +412,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             : null,
       }
       persistSession(next)
-      setState((prev) => ({ ...prev, token: next.access, canRefresh: Boolean(next.refresh) }))
+      // Nexxauth refresh response also includes the full user — update cached data
+      if (json.user) {
+        const user: User = {
+          id: String(json.user.id),
+          email: json.user.email ?? '',
+          phone: json.user.phone ?? null,
+          firstName: json.user.firstName ?? null,
+          lastName: json.user.lastName ?? null,
+          username: json.user.username ?? null,
+          role: json.user.roles?.[0]?.toUpperCase()?.replace('-', '_') as Role ?? 'CUSTOMER',
+          status: json.user.enabled ? 'ACTIVE' : 'DISABLED',
+          createdAt: json.user.createdAt ?? new Date().toISOString(),
+          updatedAt: json.user.createdAt ?? new Date().toISOString(),
+        }
+        persistUser(user)
+        setState((prev) => ({ ...prev, token: next.access, user, canRefresh: Boolean(next.refresh) }))
+      } else {
+        setState((prev) => ({ ...prev, token: next.access, canRefresh: Boolean(next.refresh) }))
+      }
       return { token: next.access, retriable: false }
     }
     const promise = run()
@@ -388,31 +460,49 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await bootstrap(stored.access)
   }, [bootstrap, refreshSession])
 
-  // Restore session on mount (access token + optional refresh token). If the
-  // access token expired while the tab was closed, refresh it first so a
-  // returning worker is not bounced to the login screen.
+  // Restore session on mount. If the user profile is cached from a previous
+  // login, use it directly — no backend call needed. If the access token
+  // expired while the tab was closed, refresh it first.
   useEffect(() => {
     const stored = parseSession()
     if (!stored) {
       setState((prev) => ({ ...prev, status: 'signedOut' }))
       return
     }
-    setState((prev) => ({ ...prev, token: stored.access, canRefresh: Boolean(stored.refresh) }))
+    const cachedUser = readStoredUser()
+    setState((prev) => ({
+      ...prev,
+      token: stored.access,
+      user: cachedUser,
+      canRefresh: Boolean(stored.refresh),
+      status: cachedUser ? 'signedIn' : 'loading',
+    }))
     const exp = stored.exp ?? decodeJwtExp(stored.access)
     if (stored.refresh && (exp == null || exp <= Date.now() / 1000)) {
+      // Token expired — refresh first, then use cached user or bootstrap.
       void refreshSession().then((outcome) => {
         if (outcome.token) {
-          void bootstrap(outcome.token)
+          // Refresh succeeded — update token, keep cached user if available.
+          if (cachedUser) {
+            setState((prev) => ({ ...prev, token: outcome.token, status: 'signedIn' }))
+          } else {
+            void bootstrap(outcome.token)
+          }
         } else if (outcome.retriable) {
-          // Network blip — fall back to the stored token; gql() will refresh
-          // on the first 401 (the handler is registered while a token is set).
-          void bootstrap(stored.access)
+          // Network blip — keep cached user if available, otherwise bootstrap.
+          if (!cachedUser) void bootstrap(stored.access)
+          else setState((prev) => ({ ...prev, status: 'signedIn' }))
         }
-        // revoked → refreshSession already cleared the session and signed out
+        // rejected → refreshSession already cleared the session and signed out
       })
       return
     }
-    void bootstrap(stored.access)
+    // Token still valid — if we have cached user, we're done. Otherwise bootstrap.
+    if (cachedUser) {
+      setState((prev) => ({ ...prev, status: 'signedIn' }))
+    } else {
+      void bootstrap(stored.access)
+    }
   }, [bootstrap, refreshSession])
 
   // Let the GraphQL client refresh transparently when a request 401s.
