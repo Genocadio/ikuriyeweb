@@ -356,15 +356,26 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     async (packageId: string) => {
       await runMutation(async () => {
         // Accept an existing transfer offer on this package.
-        // The offers list is pre-filtered to only include packages with an active transfer,
-        // so there should always be one to accept.
-        const existing = state.offers
+        // First try the local offers state (fast path); if the transfer is not
+        // found (stale state), fall back to a fresh fetch from the backend.
+        let transferId: string | undefined = state.offers
           .find((o) => o.id === packageId)
           ?.transfers.find((t) => t.status === 'PENDING' || t.status === 'REQUESTED')
-        if (!existing) {
+          ?.id
+
+        if (!transferId) {
+          // Stale or missing from local state — fetch the package directly
+          const { package: pkg } = await api.fetchPackageById(token!, packageId)
+          transferId = pkg.transfers.find(
+            (t) => t.status === 'PENDING' || t.status === 'REQUESTED',
+          )?.id
+        }
+
+        if (!transferId) {
           throw new Error('No active transfer found for this package')
         }
-        await api.acceptTransfer(token!, existing.id)
+
+        await api.acceptTransfer(token!, transferId)
       })
       toast.success('Transfer accepted — package added to your custody')
     },

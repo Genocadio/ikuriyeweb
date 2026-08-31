@@ -146,18 +146,28 @@ export async function gql<T>({ query, variables, token, signal }: GqlOptions): P
     }
 
     if (isAuthFailure(response, json) && !retried && authErrorHandler) {
+      const first = json?.errors?.[0]
+      const code = typeof first?.extensions?.code === 'string' ? first.extensions.code : undefined
+      console.debug(
+        '[auth] gql: auth failure detected — status=', response.status,
+        '| code=', code ?? '(none)',
+        '| retrying with refresh...',
+      )
       retried = true
       const outcome = await authErrorHandler()
       if (outcome.token) {
+        console.debug('[auth] gql: refresh succeeded — retrying request')
         // Refresh succeeded — retry once with the fresh token.
         return run(outcome.token)
       }
       if (outcome.retriable) {
+        console.debug('[auth] gql: refresh retriable (network) — throwing retryable error')
         // Transient failure (network): keep the session, don't look signed-out.
         throw new ApiError('Could not refresh your session — check your connection and try again.', {
           status: 0,
         })
       }
+      console.debug('[auth] gql: refresh rejected — session is dead')
       // Refresh impossible/rejected — fall through and surface the auth error
       // so the caller can sign the user out.
     }

@@ -303,6 +303,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             : null,
       }
       persistSession(session)
+      console.debug(
+        '[auth] login success:',
+        'expiresIn=', data.expiresInSeconds + 's',
+        '| exp=', session.exp ? new Date(session.exp * 1000).toISOString() : 'unknown',
+        '| hasRefreshToken=', Boolean(session.refresh),
+        '| user=', data.user.id,
+      )
       setState((prev) => ({ ...prev, canRefresh: Boolean(session.refresh) }))
       // Nexxauth response includes the full user object with roles —
       // use it directly for UI routing instead of fetching from backend.
@@ -331,6 +338,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   )
 
   const logout = useCallback(async () => {
+    console.debug('[auth] logout requested')
     const session = parseSession()
     if (session?.refresh && NEXXAUTH_BASE_URL) {
       try {
@@ -339,17 +347,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           headers: nexxauthHeaders(),
           body: JSON.stringify({ refreshToken: session.refresh }),
         })
+        console.debug('[auth] logout: server-side logout succeeded')
       } catch {
-        /* best-effort — still clear locally */
+        console.debug('[auth] logout: server-side logout failed (best-effort)')
       }
     }
     clearStored()
     clearStoredUser()
     setState((prev) => ({ ...prev, status: 'signedOut', token: null, user: null, error: null, canRefresh: false }))
+    console.debug('[auth] logout: session cleared')
   }, [])
 
   const handleSessionExpired = useCallback(() => {
     if (state.status !== 'signedIn') return
+    console.warn('[auth] session expired — clearing stored session')
     clearStored()
     clearStoredUser()
     setState((prev) => ({
@@ -365,12 +376,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // Single-flight refresh. On success the new access token (and any rotated
   // refresh token) is persisted and exposed; the caller gets the fresh token.
   const refreshSession = useCallback(async (): Promise<AuthRefreshOutcome> => {
-    if (refreshInFlight.current) return refreshInFlight.current
+    if (refreshInFlight.current) {
+      console.debug('[auth] refreshSession: dedup — refresh already in flight')
+      return refreshInFlight.current
+    }
     const run = async (): Promise<AuthRefreshOutcome> => {
       const session = parseSession()
       if (!session?.refresh || !NEXXAUTH_BASE_URL) {
+        console.debug('[auth] refreshSession: no refresh token or no nexxauth URL — cannot refresh')
         return { token: null, retriable: false }
       }
+      const remaining = session.exp ? Math.round(session.exp - Date.now() / 1000) : 'unknown'
+      console.debug('[auth] refreshSession: calling /auth/refresh, token expires in', remaining + 's')
       let response: Response
       try {
         response = await fetch(`${NEXXAUTH_BASE_URL}/auth/refresh`, {
@@ -378,18 +395,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           headers: nexxauthHeaders(),
           body: JSON.stringify({ refreshToken: session.refresh }),
         })
-      } catch {
-        // Transient network failure — keep the session, retry later.
+      } catch (err) {
+        console.warn('[auth] refreshSession: network error —', err instanceof Error ? err.message : err)
         return { token: null, retriable: true }
       }
       let json: NexxAuthResponse & { message?: string; error?: string }
       try {
         json = (await response.json()) as NexxAuthResponse & { message?: string; error?: string }
       } catch {
+        console.warn('[auth] refreshSession: failed to parse response body')
         return { token: null, retriable: true }
       }
       if (!response.ok || !json.accessToken) {
-        // The refresh token was rejected or revoked — the session is dead.
+        console.warn(
+          '[auth] refreshSession: FAILED — status=', response.status,
+          '| message=', json.message ?? json.error ?? '(none)',
+          '| hasAccessToken=', Boolean(json.accessToken),
+          '| session will be cleared',
+        )
         clearStored()
         setState((prev) => ({
           ...prev,
@@ -412,6 +435,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             : null,
       }
       persistSession(next)
+      const newRemaining = next.exp ? Math.round(next.exp - Date.now() / 1000) : 'unknown'
+      console.debug(
+        '[auth] refreshSession: OK — new token expires in', newRemaining + 's',
+        '| rotatedRefreshToken=', json.refreshToken != null,
+      )
       // Nexxauth refresh response also includes the full user — update cached data
       if (json.user) {
         const user: User = {
@@ -466,10 +494,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const stored = parseSession()
     if (!stored) {
+      console.debug('[auth] mount: no stored session — signed out')
       setState((prev) => ({ ...prev, status: 'signedOut' }))
       return
     }
     const cachedUser = readStoredUser()
+    const exp = stored.exp ?? decodeJwtExp(stored.access)
+    const remaining = exp != null ? Math.round(exp - Date.now() / 1000) : 'unknown'
+    console.debug(
+      '[auth] mount: found stored session — token expires in', remaining + 's',
+      '| hasRefreshToken=', Boolean(stored.refresh),
+      '| hasCachedUser=', Boolean(cachedUser),
+    )
     setState((prev) => ({
       ...prev,
       token: stored.access,
@@ -477,11 +513,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       canRefresh: Boolean(stored.refresh),
       status: cachedUser ? 'signedIn' : 'loading',
     }))
-    const exp = stored.exp ?? decodeJwtExp(stored.access)
     if (stored.refresh && (exp == null || exp <= Date.now() / 1000)) {
+      console.debug('[auth] mount: token expired — attempting refresh before bootstrap')
       // Token expired — refresh first, then use cached user or bootstrap.
       void refreshSession().then((outcome) => {
         if (outcome.token) {
+          console.debug('[auth] mount: refresh succeeded — using new token')
           // Refresh succeeded — update token, keep cached user if available.
           if (cachedUser) {
             setState((prev) => ({ ...prev, token: outcome.token, status: 'signedIn' }))
@@ -489,9 +526,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             void bootstrap(outcome.token)
           }
         } else if (outcome.retriable) {
+          console.debug('[auth] mount: refresh retriable (network) — using cached token')
           // Network blip — keep cached user if available, otherwise bootstrap.
           if (!cachedUser) void bootstrap(stored.access)
           else setState((prev) => ({ ...prev, status: 'signedIn' }))
+        } else {
+          console.debug('[auth] mount: refresh rejected — session already cleared')
         }
         // rejected → refreshSession already cleared the session and signed out
       })
@@ -499,8 +539,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
     // Token still valid — if we have cached user, we're done. Otherwise bootstrap.
     if (cachedUser) {
+      console.debug('[auth] mount: token valid + cached user — ready')
       setState((prev) => ({ ...prev, status: 'signedIn' }))
     } else {
+      console.debug('[auth] mount: token valid but no cached user — bootstrapping')
       void bootstrap(stored.access)
     }
   }, [bootstrap, refreshSession])
@@ -527,6 +569,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     let cancelled = false
     let timer: number | undefined
 
+    console.debug('[auth] proactive refresh: timer started')
+
     const tick = async () => {
       if (cancelled) return
       const session = parseSession()
@@ -536,8 +580,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (exp != null) {
         const remaining = exp - now
         if (remaining < REFRESH_THRESHOLD_SECONDS) {
+          console.debug('[auth] proactive refresh: firing — token expires in', Math.round(remaining) + 's')
           const outcome = await refreshSession()
           if (cancelled) return
+          console.debug('[auth] proactive refresh: outcome=', outcome.token ? 'OK' : (outcome.retriable ? 'retriable' : 'rejected'))
           // Always reschedule — success re-checks against the new token (the
           // effect also re-runs on token change), retriable retries later, and
           // a revoked refresh signs the user out (the effect cleans up).
@@ -548,8 +594,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           Math.max((remaining - REFRESH_THRESHOLD_SECONDS) * 1000, 15_000),
           REFRESH_CHECK_INTERVAL_MS,
         )
+        console.debug('[auth] proactive refresh: next check in', Math.round(delayMs / 1000) + 's (token expires in', Math.round(remaining) + 's)')
       } else {
         delayMs = REFRESH_CHECK_INTERVAL_MS
+        console.debug('[auth] proactive refresh: exp unknown — safety-net check in', Math.round(delayMs / 1000) + 's')
       }
       timer = window.setTimeout(() => void tick(), delayMs)
     }
@@ -558,6 +606,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => {
       cancelled = true
       if (timer) window.clearTimeout(timer)
+      console.debug('[auth] proactive refresh: timer stopped')
     }
   }, [state.status, state.token, state.canRefresh, refreshSession])
 

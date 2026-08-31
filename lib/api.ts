@@ -96,6 +96,16 @@ export function fetchAvailablePackages(token: string, size = 100): Promise<{ ava
   )
 }
 
+export function fetchPackageById(token: string, packageId: string): Promise<{ package: DeliveryPackage }> {
+  return gql<{ package: DeliveryPackage }>(
+    {
+      query: `query PackageById($id: ID!) { package(id: $id) { ${PACKAGE_FIELDS} } }`,
+      variables: { id: packageId },
+      token,
+    },
+  )
+}
+
 export function fetchMyTransfers(token: string): Promise<{ myTransfers: Transfer[] }> {
   return gql<{ myTransfers: Transfer[] }>(
     {
