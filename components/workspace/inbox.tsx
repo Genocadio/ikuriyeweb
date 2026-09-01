@@ -15,9 +15,11 @@ import {
   TRANSFER_STATUS_LABEL,
 } from '@/lib/status'
 import { timeAgo } from '@/lib/format'
-import type { Transfer } from '@/lib/types'
+import type { DeliveryPackage, Transfer } from '@/lib/types'
 import { cn } from '@/lib/utils'
+import { toPackageItem } from '@/lib/api'
 import { CodePromptDialog, CodeRevealDialog, ConfirmDialog } from './dialogs'
+import { PackageDetail } from './package-detail'
 
 type Tab = 'transfers' | 'offers' | 'mine'
 
@@ -31,6 +33,7 @@ export function CustodyInbox() {
   const [confirm, setConfirm] = useState<{ title: string; description?: string; label?: string; run: () => Promise<void> } | null>(null)
   const [codePrompt, setCodePrompt] = useState<{ transfer: Transfer; title: string; description?: string } | null>(null)
   const [reveal, setReveal] = useState<{ title: string; description?: string; code: string } | null>(null)
+  const [viewOffer, setViewOffer] = useState<DeliveryPackage | null>(null)
 
   // Only show transfers initiated by drivers (acceptorType=WORKER) —
   // worker→driver transfers show in the mobile app, not here.
@@ -217,18 +220,45 @@ export function CustodyInbox() {
                             </p>
                           )}
                           <div className="mt-3 flex gap-2">
-                            <Button size="sm" variant="outline" className="flex-1" disabled>
+                            <Button size="sm" variant="outline" className="flex-1" onClick={() => setViewOffer(offer)}>
                               View details
                             </Button>
-                            <Button
-                              size="sm"
-                              className="flex-1 bg-[#f07c42] text-white hover:bg-[#e3743e]"
-                              disabled={busyId === offer.id}
-                              onClick={() => void claim(offer.id)}
-                            >
-                              {busyId === offer.id ? <Loader2 className="size-3.5 animate-spin" /> : <Check className="size-3.5" />}
-                              Accept
-                            </Button>
+                            {activeTransfer && activeTransfer.status === 'PENDING' && activeTransfer.ruleType === 'AUTO' && (
+                              <Button
+                                size="sm"
+                                className="flex-1 bg-[#f07c42] text-white hover:bg-[#e3743e]"
+                                disabled={busyId === offer.id}
+                                onClick={() => void claim(offer.id)}
+                              >
+                                {busyId === offer.id ? <Loader2 className="size-3.5 animate-spin" /> : <Check className="size-3.5" />}
+                                Accept
+                              </Button>
+                            )}
+                            {activeTransfer && activeTransfer.status === 'PENDING' && activeTransfer.ruleType === 'SECURE' && (
+                              <Button
+                                size="sm"
+                                className="flex-1 bg-[#f07c42] text-white hover:bg-[#e3743e]"
+                                onClick={() => setCodePrompt({ transfer: activeTransfer, title: 'Accept code-protected transfer', description: 'This transfer is code protected. Ask the sender for the 8-character code.' })}
+                              >
+                                <KeyRound className="size-3.5" /> Enter code
+                              </Button>
+                            )}
+                            {activeTransfer && activeTransfer.status === 'PENDING' && activeTransfer.ruleType === 'CONFIRM' && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="flex-1"
+                                disabled={busyId === activeTransfer.id}
+                                onClick={() => void requestConfirm(activeTransfer)}
+                              >
+                                Request
+                              </Button>
+                            )}
+                            {activeTransfer && activeTransfer.status === 'REQUESTED' && (
+                              <Badge variant="outline" className="flex-1 items-center justify-center border-violet-200 bg-violet-50 text-[10px] text-violet-700">
+                                Requested
+                              </Badge>
+                            )}
                           </div>
                         </div>
                       )
@@ -325,6 +355,7 @@ export function CustodyInbox() {
         code={reveal?.code ?? null}
         onClose={() => setReveal(null)}
       />
+      <PackageDetail item={viewOffer ? toPackageItem(viewOffer, meId) : null} onClose={() => setViewOffer(null)} />
     </>
   )
 }

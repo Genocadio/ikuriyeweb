@@ -161,8 +161,11 @@ export async function gql<T>({ query, variables, token, signal }: GqlOptions): P
         return run(outcome.token)
       }
       if (outcome.retriable) {
-        console.debug('[auth] gql: refresh retriable (network) — throwing retryable error')
+        console.debug('[auth] gql: refresh retriable (network) — returning stale data if available')
         // Transient failure (network): keep the session, don't look signed-out.
+        // Return any partial data the backend may have sent before the auth error,
+        // so the UI stays functional rather than showing a login screen.
+        if (json?.data) return json.data as T
         throw new ApiError('Could not refresh your session — check your connection and try again.', {
           status: 0,
         })

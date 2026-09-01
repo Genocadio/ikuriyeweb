@@ -396,7 +396,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           body: JSON.stringify({ refreshToken: session.refresh }),
         })
       } catch (err) {
-        console.warn('[auth] refreshSession: network error —', err instanceof Error ? err.message : err)
+        const msg = err instanceof Error ? err.message : String(err)
+        // CORS errors show as TypeError with 'Failed to fetch' or 'NetworkError'
+        const isCors = msg.includes('Failed to fetch') || msg.includes('NetworkError') || msg.includes('CORS')
+        console.warn(
+          '[auth] refreshSession:', isCors ? 'CORS/network error' : 'network error',
+          '—', msg,
+          isCors ? '\n  → The Nexxauth server may be missing your frontend origin in its CORS allowed list.' : '',
+        )
         return { token: null, retriable: true }
       }
       let json: NexxAuthResponse & { message?: string; error?: string }
