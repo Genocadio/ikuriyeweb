@@ -407,10 +407,10 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
 
   const assignDriver = useCallback(
     async (packageId: string, driverId: string) => {
-      await runMutation(() => api.assignDriver(token!, packageId, driverId))
+      await runMutation(() => api.assignDriver(token!, packageId, driverId, meId))
       toast.success('Driver assigned')
     },
-    [token, runMutation],
+    [token, meId, runMutation],
   )
 
   const advanceStatus = useCallback(

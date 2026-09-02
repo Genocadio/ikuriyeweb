@@ -197,7 +197,7 @@ export function CreatePackageDialog({ open, onClose }: { open: boolean; onClose:
           weight: weight ? num(weight) : null,
           category: category.trim() || null,
           description: description.trim() || null,
-          fragile: fragile || null,
+          fragile: fragile,
         },
         transferRuleType: ruleType === 'NONE' ? null : ruleType,
         transferMatchUserId: matchDriverId ?? null,

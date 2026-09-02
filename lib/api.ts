@@ -243,13 +243,13 @@ export function addPackagesToTransfer(token: string, transferId: string, package
   )
 }
 
-export function assignDriver(token: string, packageId: string, driverId: string, notes?: string): Promise<{ assignDriver: DeliveryPackage }> {
+export function assignDriver(token: string, packageId: string, driverId: string, assignedBy: string, notes?: string): Promise<{ assignDriver: DeliveryPackage }> {
   return gql<{ assignDriver: DeliveryPackage }>(
     {
       query: `mutation AssignDriver($input: AssignDriverInput!) {
         assignDriver(input: $input) { id trackingCode status }
       }`,
-      variables: { input: { packageId, driverId, notes: notes ?? null } },
+      variables: { input: { packageId, driverId, assignedBy, notes: notes ?? null } },
       token,
     },
   )
