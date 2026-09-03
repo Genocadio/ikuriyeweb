@@ -37,10 +37,16 @@ export function CustodyInbox() {
 
   // Only show transfers initiated by drivers (acceptorType=WORKER) —
   // worker→driver transfers show in the mobile app, not here.
+  // Safety-net: also exclude DONE/CANCELED transfers in case local state is stale
+  // (e.g. a driver accepted on mobile before the 60 s sync ran).
   const incoming = workspace.pendingTransfers.filter(
-    (transfer) => transfer.creatorId !== meId && transfer.acceptorType === 'WORKER'
+    (transfer) => transfer.creatorId !== meId && transfer.acceptorType === 'WORKER' &&
+      transfer.status !== 'DONE' && transfer.status !== 'CANCELED'
   )
-  const requestedByMe = workspace.requestedTransfers.filter((transfer) => transfer.requestorId === meId)
+  const requestedByMe = workspace.requestedTransfers.filter(
+    (transfer) => transfer.requestorId === meId &&
+      transfer.status !== 'DONE' && transfer.status !== 'CANCELED'
+  )
   // Only show offers that have an active transfer — client packages with no transfer
   // are not transfer offers and should not appear here.
   const transferOffers = workspace.offers.filter((offer) =>

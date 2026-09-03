@@ -347,9 +347,15 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
   const acceptTransfer = useCallback(
     async (transferId: string, code?: string, opts?: { successMessage?: string }) => {
       await runMutation(() => api.acceptTransfer(token!, transferId, code))
+      // Immediately remove the accepted transfer from local state so it
+      // disappears from the inbox without waiting for the next 60 s sync.
+      patch((prev) => ({
+        pendingTransfers: prev.pendingTransfers.filter((t) => t.id !== transferId),
+        requestedTransfers: prev.requestedTransfers.filter((t) => t.id !== transferId),
+      }))
       toast.success(opts?.successMessage ?? 'Transfer accepted')
     },
-    [token, runMutation],
+    [token, runMutation, patch],
   )
 
   const claimPackage = useCallback(
@@ -461,25 +467,43 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
   const cancelTransfer = useCallback(
     (transferId: string) =>
       runMutation(() => api.cancelTransfer(token!, transferId)).then(() => {
+        patch((prev) => ({
+          pendingTransfers: prev.pendingTransfers.filter((t) => t.id !== transferId),
+          requestedTransfers: prev.requestedTransfers.filter((t) => t.id !== transferId),
+          myTransfers: prev.myTransfers.filter((t) => t.id !== transferId),
+        }))
         toast.success('Transfer cancelled')
       }),
-    [token, runMutation],
+    [token, runMutation, patch],
   )
 
   const confirmTransfer = useCallback(
     (transferId: string) =>
       runMutation(() => api.confirmTransfer(token!, transferId)).then(() => {
+        patch((prev) => ({
+          pendingTransfers: prev.pendingTransfers.filter((t) => t.id !== transferId),
+          requestedTransfers: prev.requestedTransfers.filter((t) => t.id !== transferId),
+          myTransfers: prev.myTransfers.map((t) =>
+            t.id === transferId ? { ...t, status: 'DONE' as const } : t,
+          ),
+        }))
         toast.success('Transfer confirmed — packages accepted')
       }),
-    [token, runMutation],
+    [token, runMutation, patch],
   )
 
   const rejectTransfer = useCallback(
     (transferId: string) =>
       runMutation(() => api.rejectTransfer(token!, transferId)).then(() => {
+        patch((prev) => ({
+          requestedTransfers: prev.requestedTransfers.filter((t) => t.id !== transferId),
+          myTransfers: prev.myTransfers.map((t) =>
+            t.id === transferId ? { ...t, status: 'PENDING' as const, requestorId: null } : t,
+          ),
+        }))
         toast.success('Transfer request rejected')
       }),
-    [token, runMutation],
+    [token, runMutation, patch],
   )
 
   const regenerateTransferCode = useCallback(
