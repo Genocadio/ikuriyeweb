@@ -40,6 +40,7 @@ export interface User {
   status: UserStatus
   createdAt: string
   updatedAt: string
+  driverStatus?: 'ONLINE' | 'OFFLINE' | null
 }
 
 export interface PackageCustodian {

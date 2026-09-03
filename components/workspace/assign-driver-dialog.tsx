@@ -63,7 +63,7 @@ export function AssignDriverDialog({
 
         <div className="flex flex-col gap-4">
           <div>
-            <p className="mb-2 text-xs font-medium text-muted-foreground">Driver (online)</p>
+            <p className="mb-2 text-xs font-medium text-muted-foreground">Drivers</p>
             <div className="relative mb-2">
               <Search className="absolute left-3 top-2.5 size-4 text-muted-foreground" />
               <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search drivers…" className="h-9 pl-9" />
@@ -71,7 +71,7 @@ export function AssignDriverDialog({
             <div className="max-h-48 overflow-y-auto rounded-xl border border-border">
               {filtered.length === 0 ? (
                 <p className="px-3 py-6 text-center text-xs text-muted-foreground">
-                  No drivers found. Drivers must have an active, online driver profile.
+                  No drivers found.
                 </p>
               ) : (
                 filtered.map((driver) => (
@@ -90,6 +90,11 @@ export function AssignDriverDialog({
                       <span className="block truncate text-xs font-medium">{displayName(driver)}</span>
                       <span className="block truncate text-[10px] text-muted-foreground">{driver.email}</span>
                     </span>
+                    {driver.driverStatus && (
+                      <span className={`ml-auto text-[10px] font-medium ${driver.driverStatus === 'ONLINE' ? 'text-emerald-600' : 'text-muted-foreground'}`}>
+                        {driver.driverStatus === 'ONLINE' ? 'Online' : 'Offline'}
+                      </span>
+                    )}
                     {driverId === driver.id && <span className="ml-auto size-2 rounded-full bg-emerald-500" />}
                   </button>
                 ))
@@ -98,8 +103,7 @@ export function AssignDriverDialog({
           </div>
 
           <p className="text-[10px] leading-relaxed text-muted-foreground">
-            Only drivers with an online driver profile can be assigned — offline drivers will be rejected by the
-            backend.
+            All drivers can be assigned. Online/offline status is shown as a reference.
           </p>
         </div>
 

@@ -153,7 +153,7 @@ export function fetchDrivers(token: string, query = ''): Promise<{ searchUsers: 
   return gql<{ searchUsers: User[] }>(
     {
       query: `query SearchDrivers($query: String) {
-        searchUsers(query: $query, role: DRIVER) { id firstName lastName email phone username role status }
+        searchUsers(query: $query, role: DRIVER) { id firstName lastName email phone username role status driverStatus }
       }`,
       variables: { query },
       token,
