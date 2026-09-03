@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { Check, Copy, Inbox, KeyRound, Loader2 } from 'lucide-react'
+import { Check, Copy, Inbox, KeyRound, Loader2, X } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { useAuth } from '@/lib/auth'
@@ -15,7 +15,7 @@ import {
   TRANSFER_STATUS_LABEL,
 } from '@/lib/status'
 import { timeAgo } from '@/lib/format'
-import type { DeliveryPackage, Transfer } from '@/lib/types'
+import type { DeliveryPackage, PackageItem, Transfer } from '@/lib/types'
 import { cn } from '@/lib/utils'
 import { toPackageItem } from '@/lib/api'
 import { CodePromptDialog, CodeRevealDialog, ConfirmDialog } from './dialogs'
@@ -34,6 +34,8 @@ export function CustodyInbox() {
   const [codePrompt, setCodePrompt] = useState<{ transfer: Transfer; title: string; description?: string } | null>(null)
   const [reveal, setReveal] = useState<{ title: string; description?: string; code: string } | null>(null)
   const [viewOffer, setViewOffer] = useState<DeliveryPackage | null>(null)
+  const [viewTransferPackages, setViewTransferPackages] = useState<Transfer | null>(null)
+  const [viewTransferPackage, setViewTransferPackage] = useState<PackageItem | null>(null)
 
   // Only show transfers initiated by drivers (acceptorType=WORKER) —
   // worker→driver transfers show in the mobile app, not here.
@@ -54,6 +56,11 @@ export function CustodyInbox() {
   )
   const offerCount = transferOffers.length
   const badgeCount = incoming.length + requestedByMe.length
+
+  // Look up PackageItem from a transfer's package links.
+  function findPackageForTransfer(packageId: string): PackageItem | undefined {
+    return workspace.packages.find((p) => p.id === packageId)
+  }
 
   async function acceptAuto(transfer: Transfer) {
     setBusyId(transfer.id)
@@ -166,9 +173,18 @@ export function CustodyInbox() {
                         <div key={transfer.id} className="rounded-xl border border-border p-3">
                           <TransferHeader transfer={transfer} />
                           <div className="mt-3 flex gap-2">
-                            <Button variant="outline" size="sm" className="flex-1" onClick={() => setOpen(false)}>
-                              See packages
-                            </Button>
+                            {transfer.packages.length === 1 ? (
+                              <Button variant="outline" size="sm" className="flex-1" onClick={() => {
+                                const pkg = findPackageForTransfer(transfer.packages[0]?.packageId)
+                                if (pkg) { setViewTransferPackage(pkg); setOpen(false) }
+                              }}>
+                                View details
+                              </Button>
+                            ) : (
+                              <Button variant="outline" size="sm" className="flex-1" onClick={() => { setViewTransferPackages(transfer); setOpen(false) }}>
+                                View packages
+                              </Button>
+                            )}
                             {transfer.ruleType === 'AUTO' && (
                               <Button size="sm" className="flex-1 gap-1.5 bg-[#1f2523] text-white hover:bg-[#343b37]" disabled={busyId === transfer.id} onClick={() => void acceptAuto(transfer)}>
                                 {busyId === transfer.id ? <Loader2 className="size-3.5 animate-spin" /> : <Check className="size-3.5" />}
@@ -281,6 +297,22 @@ export function CustodyInbox() {
                     workspace.myTransfers.map((transfer) => (
                       <div key={transfer.id} className="rounded-xl border border-border p-3">
                         <TransferHeader transfer={transfer} />
+                        {transfer.packages.length > 0 && (
+                          <div className="mt-3">
+                            {transfer.packages.length === 1 ? (
+                              <Button variant="outline" size="sm" className="w-full" onClick={() => {
+                                const pkg = findPackageForTransfer(transfer.packages[0]?.packageId)
+                                if (pkg) { setViewTransferPackage(pkg); setOpen(false) }
+                              }}>
+                                View details
+                              </Button>
+                            ) : (
+                              <Button variant="outline" size="sm" className="w-full" onClick={() => { setViewTransferPackages(transfer); setOpen(false) }}>
+                                View packages
+                              </Button>
+                            )}
+                          </div>
+                        )}
                         {transfer.ruleType === 'SECURE' && transfer.status === 'PENDING' && (
                           <div className="mt-2 flex items-center gap-2 text-xs text-amber-700">
                             <KeyRound className="size-3.5" />
@@ -362,6 +394,62 @@ export function CustodyInbox() {
         onClose={() => setReveal(null)}
       />
       <PackageDetail item={viewOffer ? toPackageItem(viewOffer, meId) : null} onClose={() => setViewOffer(null)} />
+      <PackageDetail item={viewTransferPackage} onClose={() => setViewTransferPackage(null)} />
+
+      {/* Transfer packages list drawer */}
+      {viewTransferPackages && (
+        <>
+          <div className="fixed inset-0 z-40 bg-foreground/20" onClick={() => setViewTransferPackages(null)} aria-hidden="true" />
+          <aside className="fixed inset-y-0 right-0 z-50 flex w-full max-w-md flex-col border-l border-border bg-card shadow-2xl">
+            <div className="flex items-start justify-between gap-4 border-b border-border p-5">
+              <div>
+                <p className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">Transfer packages</p>
+                <h2 className="mt-1 text-lg font-semibold">{viewTransferPackages.packages.length} package{viewTransferPackages.packages.length !== 1 ? 's' : ''}</h2>
+                <Badge variant="outline" className={cn('mt-1 text-[10px]', RULE_TONE[viewTransferPackages.ruleType])}>
+                  {TRANSFER_RULE_LABEL[viewTransferPackages.ruleType]}
+                </Badge>
+              </div>
+              <button onClick={() => setViewTransferPackages(null)} className="grid size-8 place-items-center rounded-lg text-muted-foreground hover:bg-muted" aria-label="Close">
+                <X className="size-4" />
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-5">
+              <div className="flex flex-col gap-2">
+                {viewTransferPackages.packages.map((link) => {
+                  const pkg = findPackageForTransfer(link.packageId)
+                  return (
+                    <div key={link.id} className="rounded-xl border border-border p-3">
+                      {pkg ? (
+                        <>
+                          <div className="flex items-center justify-between gap-2">
+                            <p className="font-mono text-xs font-semibold">{pkg.trackingCode}</p>
+                            <Badge variant="outline" className={cn('text-[10px]', statusClass(pkg.status))}>
+                              {statusLabel(pkg.status)}
+                            </Badge>
+                          </div>
+                          <p className="mt-1 text-[10px] text-muted-foreground">
+                            {pkg.receiver} · {pkg.origin} → {pkg.destination}
+                          </p>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="mt-2 w-full"
+                            onClick={() => { setViewTransferPackage(pkg); setViewTransferPackages(null) }}
+                          >
+                            View details
+                          </Button>
+                        </>
+                      ) : (
+                        <p className="font-mono text-[10px] text-muted-foreground">{link.packageId}</p>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          </aside>
+        </>
+      )}
     </>
   )
 }
