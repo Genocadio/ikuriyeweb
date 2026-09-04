@@ -133,7 +133,7 @@ export function actionsForPackage(item: PackageItem, meId: string): PackageActio
       return [{ kind: 'mark-in-transit' }, { kind: 'cancel-package' }]
     case 'IN_TRANSIT':
       return item.deliveryType === 'FIXED_ROUTE'
-        ? [{ kind: 'arrive-destination' }, { kind: 'cancel-package' }]
+        ? [{ kind: 'start-delivery' }, { kind: 'arrive-destination' }, { kind: 'cancel-package' }]
         : [{ kind: 'start-delivery' }, { kind: 'cancel-package' }]
     case 'DESTINATION_OFFICE':
       return [{ kind: 'ready-for-collection' }, { kind: 'cancel-package' }]
