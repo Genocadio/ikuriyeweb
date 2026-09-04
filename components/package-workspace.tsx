@@ -1,7 +1,7 @@
 'use client'
 
 import { useMemo, useState } from 'react'
-import { Box, Loader2, PackageCheck, Plus, RefreshCcw, Search } from 'lucide-react'
+import { Box, Loader2, PackageCheck, Plus, Search } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -104,16 +104,6 @@ export function PackageWorkspace() {
           />
         </div>
         <div className="flex items-center gap-2">
-          <Button
-            size="sm"
-            variant="outline"
-            className="h-9 gap-2 bg-card"
-            onClick={() => void workspace.refresh()}
-            disabled={workspace.refreshing}
-          >
-            <RefreshCcw className={cn('size-3.5', workspace.refreshing && 'animate-spin')} />
-            Refresh
-          </Button>
           <Button size="sm" className="h-9 shrink-0 gap-2 bg-[#1f2523] text-white hover:bg-[#343b37]" onClick={() => setCreateOpen(true)}>
             <Plus className="size-3.5" /> New package
           </Button>

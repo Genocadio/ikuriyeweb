@@ -122,7 +122,7 @@ export function CustodyInbox() {
 
   return (
     <>
-      <div className="fixed bottom-6 right-5 z-30 sm:bottom-8 sm:right-8">
+      <div className="fixed bottom-6 right-5 z-[60] sm:bottom-8 sm:right-8">
         <button
           onClick={() => setOpen((value) => !value)}
           aria-label={`Open custody inbox${badgeCount ? `, ${badgeCount} available` : ''}`}
@@ -176,12 +176,12 @@ export function CustodyInbox() {
                             {transfer.packages.length === 1 ? (
                               <Button variant="outline" size="sm" className="flex-1" onClick={() => {
                                 const pkg = findPackageForTransfer(transfer.packages[0]?.packageId)
-                                if (pkg) { setViewTransferPackage(pkg); setOpen(false) }
+                                if (pkg) setViewTransferPackage(pkg)
                               }}>
                                 View details
                               </Button>
                             ) : (
-                              <Button variant="outline" size="sm" className="flex-1" onClick={() => { setViewTransferPackages(transfer); setOpen(false) }}>
+                              <Button variant="outline" size="sm" className="flex-1" onClick={() => setViewTransferPackages(transfer)}>
                                 View packages
                               </Button>
                             )}
@@ -302,12 +302,12 @@ export function CustodyInbox() {
                             {transfer.packages.length === 1 ? (
                               <Button variant="outline" size="sm" className="w-full" onClick={() => {
                                 const pkg = findPackageForTransfer(transfer.packages[0]?.packageId)
-                                if (pkg) { setViewTransferPackage(pkg); setOpen(false) }
+                                if (pkg) setViewTransferPackage(pkg)
                               }}>
                                 View details
                               </Button>
                             ) : (
-                              <Button variant="outline" size="sm" className="w-full" onClick={() => { setViewTransferPackages(transfer); setOpen(false) }}>
+                              <Button variant="outline" size="sm" className="w-full" onClick={() => setViewTransferPackages(transfer)}>
                                 View packages
                               </Button>
                             )}
@@ -400,7 +400,7 @@ export function CustodyInbox() {
       {viewTransferPackages && (
         <>
           <div className="fixed inset-0 z-40 bg-foreground/20" onClick={() => setViewTransferPackages(null)} aria-hidden="true" />
-          <aside className="fixed inset-y-0 right-0 z-50 flex w-full max-w-md flex-col border-l border-border bg-card shadow-2xl">
+          <aside className="fixed inset-y-0 left-0 z-50 flex w-full max-w-md flex-col border-r border-border bg-card shadow-2xl">
             <div className="flex items-start justify-between gap-4 border-b border-border p-5">
               <div>
                 <p className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">Transfer packages</p>

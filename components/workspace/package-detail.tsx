@@ -233,7 +233,7 @@ export function PackageDetail({ item, onClose }: { item: PackageItem | null; onC
   return (
     <>
       <div className="fixed inset-0 z-40 bg-foreground/20" onClick={onClose} aria-hidden="true" />
-      <aside className="fixed inset-y-0 right-0 z-50 flex w-full max-w-xl flex-col border-l border-border bg-card shadow-2xl">
+      <aside className="fixed inset-y-0 left-0 z-50 flex w-full max-w-xl flex-col border-r border-border bg-card shadow-2xl">
         <div className="flex items-start justify-between gap-4 border-b border-border p-5">
           <div>
             <p className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">Package detail</p>
