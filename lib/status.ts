@@ -90,11 +90,14 @@ export type PackageAction =
   | { kind: 'start-delivery' }
   | { kind: 'confirm-delivery' }
   | { kind: 'regenerate-delivery-code' }
-  | { kind: 'mark-completed' }
   | { kind: 'cancel-package' }
 
 export function actionsForPackage(item: PackageItem, meId: string): PackageAction[] {
   const isMine = item.currentCustodian?.userId === meId
+  // Packages held by an OFFICE (custody row role OFFICE — e.g. a driver dropped
+  // the package at the destination office) are actionable by any office staff
+  // viewer with the delivery leg only.
+  const isOfficeHeld = item.currentCustodian?.role === 'OFFICE'
 
   if (item.status === 'CREATED') {
     const t = item.openTransfer
@@ -117,10 +120,11 @@ export function actionsForPackage(item: PackageItem, meId: string): PackageActio
     }
   }
 
-  if (!isMine) return []
+  if (!isMine && !isOfficeHeld) return []
 
   switch (item.status) {
     case 'ORIGIN_OFFICE':
+      // The office that created/accepted the package gives it to a driver.
       return item.openTransfer
         ? [{ kind: 'assign-driver' }, { kind: 'cancel-package' }]
         : [{ kind: 'create-transfer' }, { kind: 'assign-driver' }, { kind: 'cancel-package' }]
@@ -129,20 +133,28 @@ export function actionsForPackage(item: PackageItem, meId: string): PackageActio
         ? [{ kind: 'assign-driver' }, { kind: 'start-delivery' }, { kind: 'cancel-package' }]
         : [{ kind: 'assign-driver' }, { kind: 'cancel-package' }]
     case 'ASSIGNED_DRIVER':
-    case 'PICKED_UP':
       return [{ kind: 'mark-in-transit' }, { kind: 'cancel-package' }]
+    case 'PICKED_UP':
+      // Driver accepted from the sender directly and holds the package — can drive
+      // (mark-in-transit) or deliver straight to the receiver (start-delivery).
+      return [{ kind: 'mark-in-transit' }, { kind: 'start-delivery' }, { kind: 'cancel-package' }]
     case 'IN_TRANSIT':
+      // Driver in transit: deliver to the receiver, or hand it to the office.
       return item.deliveryType === 'FIXED_ROUTE'
         ? [{ kind: 'start-delivery' }, { kind: 'arrive-destination' }, { kind: 'cancel-package' }]
         : [{ kind: 'start-delivery' }, { kind: 'cancel-package' }]
     case 'DESTINATION_OFFICE':
-      return [{ kind: 'ready-for-collection' }, { kind: 'cancel-package' }]
+      // Received from a driver — the office can only run the delivery leg.
+      // READY_FOR_COLLECTION stages collection; start-delivery goes straight to
+      // issuing the confirmation code.
+      return [{ kind: 'ready-for-collection' }, { kind: 'start-delivery' }, { kind: 'cancel-package' }]
     case 'READY_FOR_COLLECTION':
       return [{ kind: 'start-delivery' }, { kind: 'cancel-package' }]
     case 'PENDING_CONFIRMATION':
       return [{ kind: 'confirm-delivery' }, { kind: 'regenerate-delivery-code' }]
     case 'DELIVERED':
-      return [{ kind: 'mark-completed' }]
+      // DELIVERED is terminal — delivery confirmation IS the completion.
+      return []
     default:
       return []
   }

@@ -51,7 +51,6 @@ const ACTION_LABEL: Record<PackageAction['kind'], string> = {
   'start-delivery': 'Start delivery',
   'confirm-delivery': 'Confirm delivery',
   'regenerate-delivery-code': 'Regenerate delivery code',
-  'mark-completed': 'Mark completed',
   'cancel-package': 'Cancel package',
 }
 
@@ -190,9 +189,6 @@ export function PackageDetail({ item, onClose }: { item: PackageItem | null; onC
         } finally {
           setBusy(false)
         }
-        break
-      case 'mark-completed':
-        setConfirm({ title: `Mark ${code} completed?`, description: 'Closes the package after a successful handoff.', run: () => workspace.advanceStatus(pkg.id, 'COMPLETED') })
         break
       case 'cancel-package':
         setConfirm({ title: `Cancel ${code}?`, description: 'Closes the package. This cannot be undone.', label: 'Cancel package', run: () => workspace.advanceStatus(pkg.id, 'CANCELLED', { notes: 'Cancelled from worker console' }) })
