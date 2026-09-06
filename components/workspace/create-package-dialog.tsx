@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
 import { Loader2, PackagePlus, UserRound, X, MapPin } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
@@ -15,6 +15,8 @@ import { Input } from '@/components/ui/input'
 import { useWorkspace } from '@/lib/store'
 import type { DeliveryType, TransferRuleType } from '@/lib/types'
 import { cn } from '@/lib/utils'
+import { searchLocations } from '@/lib/api'
+import type { TripLocation } from '@/lib/api'
 import { CodeRevealDialog } from './dialogs'
 import { DriverPickerDialog } from './driver-picker-dialog'
 
@@ -28,72 +30,40 @@ const TRANSFER_RULES: Array<{ value: TransferRuleType | 'NONE'; label: string; h
 function num(value: string): number {
   const parsed = Number(value)
   return Number.isFinite(parsed) ? parsed : 0
-}
-
-const RWANDA_LOCATIONS: Record<string, [number, number]> = {
-  'Kicukiro, Kigali': [-1.9536, 30.0936], 'Nyarugenge, Kigali': [-1.9440, 29.9840],
-  'Remera, Kigali': [-1.9520, 30.0610], 'Kimironko, Kigali': [-1.9380, 30.0780],
-  'Nyabugogo, Kigali': [-1.9420, 29.9960], 'Gikondo, Kigali': [-1.9600, 30.0700],
-  'Kanombe, Kigali': [-1.9600, 30.0900], 'Niboye, Kigali': [-1.9700, 30.0850],
-  'Gatenga, Kigali': [-1.9550, 30.0800], 'Gahanga, Kigali': [-1.9650, 30.0950],
-  'Kabeza, Kigali': [-1.9500, 30.0750], 'Nyamirambo, Kigali': [-1.9550, 29.9950],
-  'Kimisagara, Kigali': [-1.9450, 29.9900], 'Muhima, Kigali': [-1.9430, 30.0000],
-  'Nyakabanda, Kigali': [-1.9500, 30.0050], 'Kiyovu, Kigali': [-1.9470, 30.0100],
-  'Rugando, Kigali': [-1.9400, 30.0150], 'Kacyiru, Kigali': [-1.9350, 30.0200],
-  'Gisozi, Kigali': [-1.9300, 30.0250], 'Kibagabaga, Kigali': [-1.9250, 30.0400],
-  'Kimihurura, Kigali': [-1.9400, 30.0500], 'Nyarutarama, Kigali': [-1.9350, 30.0550],
-  'Kagarama, Kigali': [-1.9300, 30.0600], 'Biryogo, Kigali': [-1.9380, 30.0350],
-  'Busanza, Kigali': [-1.9650, 30.0750], 'Giporoso, Kigali': [-1.9550, 30.0850],
-  'Kicukiro Center, Kigali': [-1.9530, 30.0900],
-  'Musanze Town': [-1.4990, 29.6330], 'Ruhengeri, Musanze': [-1.5000, 29.6300],
-  'Kinigi, Musanze': [-1.4500, 29.5800],
-  'Byumba, Gicumbi': [-1.5760, 29.5560], 'Rulindo Town': [-1.5300, 29.6200],
-  'Burera': [-1.3500, 29.5500], 'Gakenke': [-1.5500, 29.5000],
-  'Cyumba, Gicumbi': [-1.5200, 29.5800], 'Miyove, Gicumbi': [-1.6000, 29.5200],
-  'Nemba, Gicumbi': [-1.5800, 29.5300],
-  'Huye Town': [-2.5930, 29.5400], 'Butare, Huye': [-2.5950, 29.5380],
-  'Nyanza Town': [-2.4900, 29.7300], 'Nyamagabe': [-2.4800, 29.5600],
-  'Gisagara': [-2.5300, 29.5800], 'Muhanga Town': [-2.0800, 29.7600],
-  'Ruhango': [-2.2200, 29.7800], 'Kamonyi': [-2.1500, 29.8000],
-  'Rubavu Town': [-1.6700, 29.2600], 'Gisenyi, Rubavu': [-1.6720, 29.2580],
-  'Rusizi Town': [-2.4900, 28.9100], 'Kamembe, Rusizi': [-2.4850, 28.9150],
-  'Karongi Town': [-2.0500, 29.3800], 'Kibuye, Karongi': [-2.0520, 29.3780],
-  'Nyamasheke': [-2.3500, 29.1500], 'Rutsiro': [-1.9500, 29.3500],
-  'Ngororero': [-1.8500, 29.6200], 'Nyabihu': [-1.6500, 29.5500],
-  'Rwamagana Town': [-1.9500, 30.4400], 'Nyagatare Town': [-1.3000, 30.3200],
-  'Bugesera': [-2.2500, 30.1500], 'Ngoma Town': [-2.1800, 30.5200],
-  'Kayonza Town': [-1.9000, 30.3800], 'Gatsibo': [-1.7500, 30.4500],
-  'Kirehe': [-2.1500, 30.6500],
-  'Akagera National Park': [-1.8500, 30.4500], 'Volcanoes National Park': [-1.4500, 29.5500],
-  'Nyungwe National Park': [-2.4800, 29.2500],
-  'Lake Kivu': [-2.0000, 29.1000], 'Lake Muhazi': [-1.8500, 30.3500],
-  'Lake Burera': [-1.4000, 29.5500], 'Lake Ruhondo': [-1.4200, 29.5800],
+}// Location display name: prefer custom_name, fall back to google_place_name, then code
+function locationDisplayName(loc: TripLocation): string {
+  return loc.custom_name || loc.google_place_name || loc.code || `Location #${loc.id}`
 }
 
 function LocationSuggestionInput({
   value,
   onChange,
-  onCoordinatesChange,
+  onLocationSelect,
   placeholder,
   icon,
 }: {
   value: string
   onChange: (v: string) => void
-  onCoordinatesChange?: (lat: number, lng: number) => void
+  onLocationSelect?: (loc: TripLocation) => void
   placeholder: string
   icon?: React.ReactNode
 }) {
-  const [focused, setFocused] = useState(false)
   const [showDropdown, setShowDropdown] = useState(false)
-  const inputRef = useRef<HTMLInputElement>(null)
+  const [results, setResults] = useState<TripLocation[]>([])
+  const [searching, setSearching] = useState(false)
   const wrapperRef = useRef<HTMLDivElement>(null)
+  const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined)
 
-  const locationNames = Object.keys(RWANDA_LOCATIONS)
-  const filtered = value.trim()
-    ? locationNames.filter((loc) =>
-        loc.toLowerCase().includes(value.toLowerCase())
-      )
-    : locationNames.slice(0, 8) // show popular locations when empty
+  const doSearch = useCallback((q: string) => {
+    if (debounceRef.current) clearTimeout(debounceRef.current)
+    if (!q.trim()) { setResults([]); return }
+    debounceRef.current = setTimeout(async () => {
+      setSearching(true)
+      const locs = await searchLocations(q, 15)
+      setResults(locs)
+      setSearching(false)
+    }, 250)
+  }, [])
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
@@ -114,41 +84,46 @@ function LocationSuggestionInput({
           </span>
         )}
         <input
-          ref={inputRef}
           type="text"
           value={value}
           placeholder={placeholder}
           className={`flex h-9 w-full rounded-xl border border-border bg-transparent px-3 py-1 text-xs shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#f07c42] disabled:cursor-not-allowed disabled:opacity-50 ${icon ? 'pl-9' : ''}`}
-          onFocus={() => { setFocused(true); setShowDropdown(true) }}
-          onBlur={() => setFocused(false)}
+          onFocus={() => setShowDropdown(true)}
           onChange={(e) => {
             onChange(e.target.value)
+            doSearch(e.target.value)
             setShowDropdown(true)
           }}
         />
       </div>
-      {showDropdown && filtered.length > 0 && (
+      {showDropdown && (results.length > 0 || searching) && (
         <div className="absolute z-50 mt-1 max-h-48 w-full overflow-y-auto rounded-xl border border-border bg-white shadow-lg dark:bg-zinc-900">
-          {filtered.map((loc) => (
-            <button
-              key={loc}
-              type="button"
-              className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs hover:bg-muted/50"
-              onMouseDown={(e) => {
-                e.preventDefault()
-                onChange(loc)
-                // Auto-fill coordinates when selecting from suggestions
-                const coords = RWANDA_LOCATIONS[loc]
-                if (coords && onCoordinatesChange) {
-                  onCoordinatesChange(coords[0], coords[1])
-                }
-                setShowDropdown(false)
-              }}
-            >
-              <MapPin className="size-3 shrink-0 text-muted-foreground" />
-              <span>{loc}</span>
-            </button>
-          ))}
+          {searching && results.length === 0 && (
+            <div className="px-3 py-2 text-xs text-muted-foreground">Searching…</div>
+          )}
+          {results.map((loc) => {
+            const name = locationDisplayName(loc)
+            const sub = [loc.district, loc.province].filter(Boolean).join(', ')
+            return (
+              <button
+                key={loc.id}
+                type="button"
+                className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs hover:bg-muted/50"
+                onMouseDown={(e) => {
+                  e.preventDefault()
+                  onChange(name)
+                  if (onLocationSelect) onLocationSelect(loc)
+                  setShowDropdown(false)
+                }}
+              >
+                <MapPin className="size-3 shrink-0 text-muted-foreground" />
+                <span className="flex flex-col">
+                  <span>{name}</span>
+                  {sub && <span className="text-[10px] text-muted-foreground">{sub}</span>}
+                </span>
+              </button>
+            )
+          })}
         </div>
       )}
     </div>
@@ -174,6 +149,8 @@ export function CreatePackageDialog({ open, onClose }: { open: boolean; onClose:
   const [originCoords, setOriginCoords] = useState<[number, number]>([0, 0])
   const [destName, setDestName] = useState('')
   const [destCoords, setDestCoords] = useState<[number, number]>([0, 0])
+  const [originPlaceId, setOriginPlaceId] = useState<string | null>(null)
+  const [destPlaceId, setDestPlaceId] = useState<string | null>(null)
   const [weight, setWeight] = useState('')
   const [category, setCategory] = useState('')
   const [description, setDescription] = useState('')
@@ -191,8 +168,8 @@ export function CreatePackageDialog({ open, onClose }: { open: boolean; onClose:
         deliveryType,
         sender: { role: 'SENDER', name: senderName.trim(), phone: senderPhone.trim() || null },
         receiver: { role: 'RECEIVER', name: receiverName.trim(), phone: receiverPhone.trim() || null },
-        origin: { type: 'ORIGIN', latitude: originCoords[0], longitude: originCoords[1], placeName: originName.trim() },
-        destination: { type: 'DESTINATION', latitude: destCoords[0], longitude: destCoords[1], placeName: destName.trim() },
+        origin: { type: 'ORIGIN', latitude: originCoords[0], longitude: originCoords[1], placeName: originName.trim(), placeId: originPlaceId },
+        destination: { type: 'DESTINATION', latitude: destCoords[0], longitude: destCoords[1], placeName: destName.trim(), placeId: destPlaceId },
         details: {
           weight: weight ? num(weight) : null,
           category: category.trim() || null,
@@ -247,7 +224,10 @@ export function CreatePackageDialog({ open, onClose }: { open: boolean; onClose:
                 <LocationSuggestionInput
                   value={originName}
                   onChange={setOriginName}
-                  onCoordinatesChange={(lat, lng) => setOriginCoords([lat, lng])}
+                  onLocationSelect={(loc) => {
+                    setOriginCoords([loc.latitude, loc.longitude])
+                    setOriginPlaceId(loc.place_id ?? null)
+                  }}
                   placeholder="Pickup location"
                   icon={<MapPin className="size-3.5" />}
                 />
@@ -257,7 +237,10 @@ export function CreatePackageDialog({ open, onClose }: { open: boolean; onClose:
                 <LocationSuggestionInput
                   value={destName}
                   onChange={setDestName}
-                  onCoordinatesChange={(lat, lng) => setDestCoords([lat, lng])}
+                  onLocationSelect={(loc) => {
+                    setDestCoords([loc.latitude, loc.longitude])
+                    setDestPlaceId(loc.place_id ?? null)
+                  }}
                   placeholder="Drop-off location"
                   icon={<MapPin className="size-3.5" />}
                 />

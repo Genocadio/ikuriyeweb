@@ -1,11 +1,11 @@
 # IkuriyeWeb
 
-A modern worker portal built with Next.js, React 19, and Supabase Realtime for the CavGo delivery platform.
+A modern worker portal built with Next.js, React 19 for the CavGo delivery platform.
 
 ## Features
 
 - **Next.js 16** with React 19
-- **Supabase Realtime** subscriptions for live updates
+- **GraphQL subscriptions** for live updates
 - **Tailwind CSS** for styling
 - **shadcn/ui** components
 - **Nexxauth** integration for authentication
@@ -36,8 +36,6 @@ Required variables:
 - `NEXT_PUBLIC_API_URL` - CavGo backend URL
 - `NEXT_PUBLIC_NEXXAUTH_BASE_URL` - Nexxauth identity provider URL
 - `NEXT_PUBLIC_NEXXAUTH_CLIENT_ID` - Nexxauth WEB client key
-- `NEXT_PUBLIC_SUPABASE_URL` - Supabase project URL
-- `NEXT_PUBLIC_SUPABASE_ANON_KEY` - Supabase anon key
 
 ### Development
 
@@ -60,7 +58,7 @@ bun run start
 - **UI:** shadcn/ui + Tailwind CSS
 - **Backend:** CavGo Spring Boot API
 - **Auth:** Nexxauth
-- **Realtime:** Supabase
+- **Realtime:** GraphQL subscriptions
 
 ## License
 

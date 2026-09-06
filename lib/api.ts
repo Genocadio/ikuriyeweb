@@ -1,4 +1,4 @@
-import { gql } from './client'
+import { gql, LOCATIONS_URL } from './client'
 import type {
   DeliveryCodeResult,
   DeliveryPackage,
@@ -39,6 +39,54 @@ const PACKAGE_FIELDS = `
   transfers { ${TRANSFER_FIELDS} }
   createdAt updatedAt
 `
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Location search (cavgotrips REST API via gateway)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface TripLocation {
+  id: number
+  latitude: number
+  longitude: number
+  google_place_name: string | null
+  custom_name: string | null
+  province: string | null
+  district: string | null
+  place_id: string | null
+  code: string | null
+}
+
+export interface LocationsResponse {
+  data: TripLocation[]
+  pagination: {
+    page: number
+    limit: number
+    total: number
+    total_pages: number
+    has_next: boolean
+    has_prev: boolean
+  }
+}
+
+let _locationsAbort: AbortController | null = null
+
+/**
+ * Search locations from cavgotrips. Aborts any in-flight request so rapid
+ * keystrokes don't stack up responses out of order.
+ */
+export async function searchLocations(query: string, limit = 20): Promise<TripLocation[]> {
+  if (_locationsAbort) _locationsAbort.abort()
+  _locationsAbort = new AbortController()
+  const url = `${LOCATIONS_URL}?search=${encodeURIComponent(query)}&limit=${limit}&page=1`
+  try {
+    const res = await fetch(url, { signal: _locationsAbort.signal })
+    if (!res.ok) return []
+    const json: LocationsResponse = await res.json()
+    return json.data ?? []
+  } catch {
+    return []
+  }
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Queries

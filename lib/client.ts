@@ -6,9 +6,12 @@
 export const API_URL: string =
   process.env.NEXT_PUBLIC_API_URL?.replace(/\/+$/, '') || 'http://localhost:8080'
 
-export const GRAPHQL_ENDPOINT = API_URL.endsWith('/graphql')
-  ? API_URL
-  : `${API_URL}/graphql`
+// All GraphQL traffic goes through the gateway's /ikuriye namespace.
+// The gateway strips /ikuriye and forwards /graphql to ikuriyebackend.
+export const GRAPHQL_ENDPOINT = `${API_URL}/ikuriye/graphql`
+
+// cavgotrips location search — served by the Go service through the gateway's /navig namespace.
+export const LOCATIONS_URL = `${API_URL}/navig/locations`
 
 export interface GraphqlErrorShape {
   message: string
