@@ -175,13 +175,14 @@ export function CustodyInbox() {
                           <div className="mt-3 flex gap-2">
                             {transfer.packages.length === 1 ? (
                               <Button variant="outline" size="sm" className="flex-1" onClick={() => {
+                                setOpen(false)
                                 const pkg = findPackageForTransfer(transfer.packages[0]?.packageId)
                                 if (pkg) setViewTransferPackage(pkg)
                               }}>
                                 View details
                               </Button>
                             ) : (
-                              <Button variant="outline" size="sm" className="flex-1" onClick={() => setViewTransferPackages(transfer)}>
+                              <Button variant="outline" size="sm" className="flex-1" onClick={() => { setOpen(false); setViewTransferPackages(transfer) }}>
                                 View packages
                               </Button>
                             )}
@@ -242,7 +243,7 @@ export function CustodyInbox() {
                             </p>
                           )}
                           <div className="mt-3 flex gap-2">
-                            <Button size="sm" variant="outline" className="flex-1" onClick={() => setViewOffer(offer)}>
+                            <Button size="sm" variant="outline" className="flex-1" onClick={() => { setOpen(false); setViewOffer(offer) }}>
                               View details
                             </Button>
                             {activeTransfer && activeTransfer.status === 'PENDING' && activeTransfer.ruleType === 'AUTO' && (
@@ -301,13 +302,14 @@ export function CustodyInbox() {
                           <div className="mt-3">
                             {transfer.packages.length === 1 ? (
                               <Button variant="outline" size="sm" className="w-full" onClick={() => {
+                                setOpen(false)
                                 const pkg = findPackageForTransfer(transfer.packages[0]?.packageId)
                                 if (pkg) setViewTransferPackage(pkg)
                               }}>
                                 View details
                               </Button>
                             ) : (
-                              <Button variant="outline" size="sm" className="w-full" onClick={() => setViewTransferPackages(transfer)}>
+                              <Button variant="outline" size="sm" className="w-full" onClick={() => { setOpen(false); setViewTransferPackages(transfer) }}>
                                 View packages
                               </Button>
                             )}
