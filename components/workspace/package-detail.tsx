@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
   ArrowRight,
   Check,
@@ -18,6 +18,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { useAuth } from '@/lib/auth'
 import { useWorkspace } from '@/lib/store'
+import { fetchPackageById, toPackageItem } from '@/lib/api'
 import {
   ACCEPTOR_LABEL,
   actionsForPackage,
@@ -55,7 +56,7 @@ const ACTION_LABEL: Record<PackageAction['kind'], string> = {
 }
 
 export function PackageDetail({ item, onClose }: { item: PackageItem | null; onClose: () => void }) {
-  const { user } = useAuth()
+  const { user, token } = useAuth()
   const workspace = useWorkspace()
   const [confirm, setConfirm] = useState<{ title: string; description?: string; label?: string; run: () => Promise<unknown> } | null>(null)
   const [codePrompt, setCodePrompt] = useState<{ title: string; description?: string; label?: string; initialValue?: string; onSubmit: (code: string) => Promise<void> } | null>(null)
@@ -63,6 +64,27 @@ export function PackageDetail({ item, onClose }: { item: PackageItem | null; onC
   const [assignOpen, setAssignOpen] = useState(false)
   const [createTransferOpen, setCreateTransferOpen] = useState(false)
   const [busy, setBusy] = useState(false)
+
+  // List queries return a slim field set (no events/custody/media) to keep the
+  // workspace fast. When the drawer opens, fetch the full package so the
+  // timeline, custody trail and photos render; keep the list item visible in
+  // the meantime.
+  const [full, setFull] = useState<PackageItem | null>(null)
+  useEffect(() => {
+    setFull(null)
+    if (!item || !token) return
+    let cancelled = false
+    fetchPackageById(token, item.id)
+      .then(({ package: pkg }) => {
+        if (!cancelled) setFull(toPackageItem(pkg, user?.id ?? ''))
+      })
+      .catch(() => {
+        /* slim list data still renders — ignore enrichment failures */
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [item?.id, token, user?.id])
 
   if (!item) {
     // Keep the one-time code reveal mounted while the drawer unmounts (e.g. after
@@ -77,7 +99,7 @@ export function PackageDetail({ item, onClose }: { item: PackageItem | null; onC
       />
     ) : null
   }
-  const pkg = item
+  const pkg = full ?? item
   const meId = user?.id ?? ''
   const actions = actionsForPackage(pkg, meId)
   const t = pkg.openTransfer
@@ -228,20 +250,22 @@ export function PackageDetail({ item, onClose }: { item: PackageItem | null; onC
 
   return (
     <>
-      <div className="fixed inset-0 z-40 bg-foreground/20" onClick={onClose} aria-hidden="true" />
-      <aside className="fixed inset-y-0 left-0 z-50 flex w-full max-w-xl flex-col border-r border-border bg-card shadow-2xl">
+      {/* z-[70] — above the custody-inbox FAB (z-[60]) so the inbox stays open
+          behind the drawer; shared dialogs (z-[80]) still layer on top. */}
+      <div className="fixed inset-0 z-[70] bg-foreground/20" onClick={onClose} aria-hidden="true" />
+      <aside className="fixed inset-y-0 left-0 z-[70] flex w-full max-w-xl flex-col border-r border-border bg-card shadow-2xl">
         <div className="flex items-start justify-between gap-4 border-b border-border p-5">
           <div>
             <p className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">Package detail</p>
             <div className="mt-1 flex flex-wrap items-center gap-2">
-              <h2 className="text-xl font-semibold">{item.trackingCode}</h2>
-              <Badge variant="outline" className={cn('text-[10px]', statusClass(item.status))}>{statusLabel(item.status)}</Badge>
+              <h2 className="text-xl font-semibold">{pkg.trackingCode}</h2>
+              <Badge variant="outline" className={cn('text-[10px]', statusClass(pkg.status))}>{statusLabel(pkg.status)}</Badge>
               <Badge variant="outline" className="font-mono text-[9px] uppercase tracking-wider text-muted-foreground">
-                {item.deliveryType}
+                {pkg.deliveryType}
               </Badge>
             </div>
             <p className="mt-1 text-xs text-muted-foreground">
-              {item.receiver} · {item.destination}
+              {pkg.receiver} · {pkg.destination}
             </p>
           </div>
           <button onClick={onClose} className="grid size-8 place-items-center rounded-lg text-muted-foreground hover:bg-muted" aria-label="Close">
@@ -251,28 +275,28 @@ export function PackageDetail({ item, onClose }: { item: PackageItem | null; onC
 
         <div className="flex-1 overflow-y-auto p-5">
           <div className="grid gap-3 rounded-xl border border-border bg-muted/30 p-4 text-xs sm:grid-cols-2">
-            <div><p className="text-[10px] uppercase tracking-wider text-muted-foreground">Sender</p><p className="mt-1 font-medium">{item.sender}</p></div>
-            <div><p className="text-[10px] uppercase tracking-wider text-muted-foreground">Receiver</p><p className="mt-1 font-medium">{item.receiver}</p></div>
-            <div><p className="text-[10px] uppercase tracking-wider text-muted-foreground">Origin</p><p className="mt-1 font-medium">{item.origin}</p></div>
-            <div><p className="text-[10px] uppercase tracking-wider text-muted-foreground">Destination</p><p className="mt-1 font-medium">{item.destination}</p></div>
-            {item.weight && <div><p className="text-[10px] uppercase tracking-wider text-muted-foreground">Weight</p><p className="mt-1 font-medium">{item.weight}</p></div>}
-            {item.category && <div><p className="text-[10px] uppercase tracking-wider text-muted-foreground">Category</p><p className="mt-1 font-medium">{item.category}</p></div>}
+            <div><p className="text-[10px] uppercase tracking-wider text-muted-foreground">Sender</p><p className="mt-1 font-medium">{pkg.sender}</p></div>
+            <div><p className="text-[10px] uppercase tracking-wider text-muted-foreground">Receiver</p><p className="mt-1 font-medium">{pkg.receiver}</p></div>
+            <div><p className="text-[10px] uppercase tracking-wider text-muted-foreground">Origin</p><p className="mt-1 font-medium">{pkg.origin}</p></div>
+            <div><p className="text-[10px] uppercase tracking-wider text-muted-foreground">Destination</p><p className="mt-1 font-medium">{pkg.destination}</p></div>
+            {pkg.weight && <div><p className="text-[10px] uppercase tracking-wider text-muted-foreground">Weight</p><p className="mt-1 font-medium">{pkg.weight}</p></div>}
+            {pkg.category && <div><p className="text-[10px] uppercase tracking-wider text-muted-foreground">Category</p><p className="mt-1 font-medium">{pkg.category}</p></div>}
           </div>
 
-          {item.description && (
-            <p className="mt-4 rounded-xl border border-border p-3 text-xs leading-relaxed text-muted-foreground">{item.description}</p>
+          {pkg.description && (
+            <p className="mt-4 rounded-xl border border-border p-3 text-xs leading-relaxed text-muted-foreground">{pkg.description}</p>
           )}
 
-          {item.fragile && (
+          {pkg.fragile && (
             <Badge variant="outline" className="mt-3 border-amber-200 bg-amber-50 text-[10px] text-amber-700">Fragile</Badge>
           )}
 
-          {item.photos.length > 0 && (
+          {pkg.photos.length > 0 && (
             <div className="mt-4">
               <p className="mb-2 text-[10px] uppercase tracking-wider text-muted-foreground">Package photos</p>
               <div className="grid grid-cols-2 gap-2">
-                {item.photos.map((photo) => (
-                  <img key={photo} src={photo} alt={`Photo of ${item.trackingCode}`} className="h-28 w-full rounded-xl object-cover" />
+                {pkg.photos.map((photo) => (
+                  <img key={photo} src={photo} alt={`Photo of ${pkg.trackingCode}`} className="h-28 w-full rounded-xl object-cover" />
                 ))}
               </div>
             </div>
@@ -306,19 +330,19 @@ export function PackageDetail({ item, onClose }: { item: PackageItem | null; onC
             <div className="flex items-center justify-between rounded-xl border border-border p-3">
               <span className="text-xs text-muted-foreground">Held by</span>
               <span className="text-xs font-medium">
-                {item.currentCustodian ? `${item.currentCustodian.name} (${item.currentCustodian.role})` : 'No custodian'}
-                {item.assignedDriver && item.currentCustodian?.role !== 'DRIVER' ? ` · ${item.assignedDriver}` : ''}
+                {pkg.currentCustodian ? `${pkg.currentCustodian.name} (${pkg.currentCustodian.role})` : 'No custodian'}
+                {pkg.assignedDriver && pkg.currentCustodian?.role !== 'DRIVER' ? ` · ${pkg.assignedDriver}` : ''}
               </span>
             </div>
           </div>
 
-          {item.custody.length > 0 && (
+          {pkg.custody.length > 0 && (
             <div className="mt-4">
               <p className="mb-2 flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-muted-foreground">
                 <ArrowRight className="size-3.5" /> Custody trail
               </p>
               <div className="flex flex-col gap-2">
-                {item.custody.map((entry) => (
+                {pkg.custody.map((entry) => (
                   <div key={entry.id} className="flex items-center gap-3 text-xs">
                     <span className="grid size-6 shrink-0 place-items-center rounded-full bg-muted text-muted-foreground">
                       <Check className="size-3" />
@@ -333,13 +357,13 @@ export function PackageDetail({ item, onClose }: { item: PackageItem | null; onC
             </div>
           )}
 
-          {item.events.length > 0 && (
+          {pkg.events.length > 0 && (
             <div className="mt-4">
               <p className="mb-2 flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-muted-foreground">
                 <Clock3 className="size-3.5" /> Timeline
               </p>
               <div className="flex flex-col gap-2">
-                {item.events.map((event) => (
+                {pkg.events.map((event) => (
                   <div key={event.id} className="flex gap-3 text-xs">
                     <span className="mt-1.5 size-1.5 shrink-0 rounded-full bg-muted-foreground/50" />
                     <span className="min-w-0">
@@ -354,7 +378,7 @@ export function PackageDetail({ item, onClose }: { item: PackageItem | null; onC
             </div>
           )}
 
-          {item.status === 'PENDING_CONFIRMATION' && (
+          {pkg.status === 'PENDING_CONFIRMATION' && (
             <div className="mt-4 flex items-start gap-2 rounded-xl border border-orange-200 bg-orange-50 p-3 text-xs text-orange-800">
               <MapPin className="mt-0.5 size-3.5 shrink-0" />
               <span>
@@ -402,7 +426,7 @@ export function PackageDetail({ item, onClose }: { item: PackageItem | null; onC
         onClose={() => setConfirm(null)}
       />
       <CodePromptDialog
-        key={codePrompt ? `${item.id}-${codePrompt.title}` : 'none'}
+        key={codePrompt ? `${pkg.id}-${codePrompt.title}` : 'none'}
         open={Boolean(codePrompt)}
         title={codePrompt?.title ?? ''}
         description={codePrompt?.description}
@@ -421,13 +445,13 @@ export function PackageDetail({ item, onClose }: { item: PackageItem | null; onC
       />
       <AssignDriverDialog
         open={assignOpen}
-        packageId={item.id}
-        packageCode={item.trackingCode}
+        packageId={pkg.id}
+        packageCode={pkg.trackingCode}
         onClose={() => setAssignOpen(false)}
       />
       <DriverPickerDialog
         open={createTransferOpen}
-        title={`Create transfer for ${item.trackingCode}`}
+        title={`Create transfer for ${pkg.trackingCode}`}
         description="Select a driver who will pick up this package. A transfer will be created for them."
         onConfirm={async (driverId) => {
           await workspace.createTransferForPackages([pkg.id], 'AUTO', driverId)

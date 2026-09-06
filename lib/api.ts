@@ -25,6 +25,20 @@ const TRANSFER_FIELDS = `
   createdAt updatedAt
 `
 
+// Slim selection for list views: skips events/custody/media. The old full
+// tree made every list item pull its whole history — for a 200-package page
+// that was thousands of nested rows per request. Detail views use
+// PACKAGE_FIELDS (fetched per package on open).
+const PACKAGE_LIST_FIELDS = `
+  id trackingCode deliveryType status creatorId companyId tripId
+  custodians { id userId name phone role assignedAt }
+  people { id role userId name phone }
+  locations { id type latitude longitude placeName placeId officeLocationId }
+  details { category description fragile weight length width height declaredValue }
+  transfers { ${TRANSFER_FIELDS} }
+  createdAt updatedAt
+`
+
 const PACKAGE_FIELDS = `
   id trackingCode deliveryType status creatorId companyId tripId
   custodians { id userId name phone role assignedAt }
@@ -114,7 +128,7 @@ export function fetchMyPackages(token: string, opts?: { status?: PackageStatus; 
     {
       query: `query MyPackages($status: PackageStatus, $order: SortOrder, $page: Int, $size: Int) {
         myPackages(status: $status, order: $order, page: $page, size: $size) {
-          items { ${PACKAGE_FIELDS} }
+          items { ${PACKAGE_LIST_FIELDS} }
           totalCount totalPages currentPage
         }
       }`,
@@ -122,19 +136,19 @@ export function fetchMyPackages(token: string, opts?: { status?: PackageStatus; 
         status: opts?.status ?? null,
         order: opts?.order ?? 'DESC',
         page: opts?.page ?? 0,
-        size: opts?.size ?? 200,
+        size: opts?.size ?? 25,
       },
       token,
     },
   )
 }
 
-export function fetchAvailablePackages(token: string, size = 100): Promise<{ availablePackages: DeliveryPackagePage }> {
+export function fetchAvailablePackages(token: string, size = 25): Promise<{ availablePackages: DeliveryPackagePage }> {
   return gql<{ availablePackages: DeliveryPackagePage }>(
     {
       query: `query AvailablePackages($size: Int) {
         availablePackages(page: 0, size: $size) {
-          items { ${PACKAGE_FIELDS} }
+          items { ${PACKAGE_LIST_FIELDS} }
           totalCount totalPages currentPage
         }
       }`,
@@ -442,8 +456,8 @@ export function toPackageItem(pkg: DeliveryPackage, meId: string): PackageItem {
     isMine: current?.userId === meId,
     isCreator: pkg.creatorId === meId,
     openTransfer,
-    events: pkg.events,
-    custody: pkg.custody,
+    events: pkg.events ?? [],
+    custody: pkg.custody ?? [],
     updatedAt: pkg.updatedAt,
   }
 }

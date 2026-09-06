@@ -23,6 +23,38 @@ import { PackageDetail } from './package-detail'
 
 type Tab = 'transfers' | 'offers' | 'mine'
 
+/**
+ * Minimal placeholder used to open the detail drawer for a package we only
+ * know by id (e.g. a package inside an incoming transfer that is not in local
+ * state). PackageDetail fetches the full package by id on open and replaces
+ * this stub's data.
+ */
+function stubPackageItem(packageId: string): PackageItem {
+  return {
+    id: packageId,
+    trackingCode: '…',
+    deliveryType: 'OPEN',
+    status: 'CREATED',
+    sender: '',
+    receiver: '',
+    origin: '',
+    destination: '',
+    weight: null,
+    category: null,
+    description: null,
+    fragile: false,
+    photos: [],
+    currentCustodian: null,
+    assignedDriver: null,
+    isMine: false,
+    isCreator: false,
+    openTransfer: null,
+    events: [],
+    custody: [],
+    updatedAt: new Date(0).toISOString(),
+  }
+}
+
 export function CustodyInbox() {
   const { user } = useAuth()
   const workspace = useWorkspace()
@@ -57,9 +89,22 @@ export function CustodyInbox() {
   const offerCount = transferOffers.length
   const badgeCount = incoming.length + requestedByMe.length
 
-  // Look up PackageItem from a transfer's package links.
-  function findPackageForTransfer(packageId: string): PackageItem | undefined {
-    return workspace.packages.find((p) => p.id === packageId)
+  // Look up PackageItem from a transfer's package links — checks my packages
+  // first, then the available-offers list.
+  function findPackageForTransfer(packageId?: string): PackageItem | undefined {
+    if (!packageId) return undefined
+    const mine = workspace.packages.find((p) => p.id === packageId)
+    if (mine) return mine
+    const offer = workspace.offers.find((o) => o.id === packageId)
+    return offer ? toPackageItem(offer, meId) : undefined
+  }
+
+  // Open the detail drawer for a package by id even when it is not in local
+  // state — the drawer fetches full data on open. The FAB stays open; the
+  // drawer overlays it and closing it returns to the inbox.
+  function openPackageById(packageId?: string) {
+    if (!packageId) return
+    setViewTransferPackage(findPackageForTransfer(packageId) ?? stubPackageItem(packageId))
   }
 
   async function acceptAuto(transfer: Transfer) {
@@ -174,15 +219,11 @@ export function CustodyInbox() {
                           <TransferHeader transfer={transfer} />
                           <div className="mt-3 flex gap-2">
                             {transfer.packages.length === 1 ? (
-                              <Button variant="outline" size="sm" className="flex-1" onClick={() => {
-                                setOpen(false)
-                                const pkg = findPackageForTransfer(transfer.packages[0]?.packageId)
-                                if (pkg) setViewTransferPackage(pkg)
-                              }}>
+                              <Button variant="outline" size="sm" className="flex-1" onClick={() => openPackageById(transfer.packages[0]?.packageId)}>
                                 View details
                               </Button>
                             ) : (
-                              <Button variant="outline" size="sm" className="flex-1" onClick={() => { setOpen(false); setViewTransferPackages(transfer) }}>
+                              <Button variant="outline" size="sm" className="flex-1" onClick={() => setViewTransferPackages(transfer)}>
                                 View packages
                               </Button>
                             )}
@@ -243,7 +284,7 @@ export function CustodyInbox() {
                             </p>
                           )}
                           <div className="mt-3 flex gap-2">
-                            <Button size="sm" variant="outline" className="flex-1" onClick={() => { setOpen(false); setViewOffer(offer) }}>
+                            <Button size="sm" variant="outline" className="flex-1" onClick={() => setViewOffer(offer)}>
                               View details
                             </Button>
                             {activeTransfer && activeTransfer.status === 'PENDING' && activeTransfer.ruleType === 'AUTO' && (
@@ -301,15 +342,11 @@ export function CustodyInbox() {
                         {transfer.packages.length > 0 && (
                           <div className="mt-3">
                             {transfer.packages.length === 1 ? (
-                              <Button variant="outline" size="sm" className="w-full" onClick={() => {
-                                setOpen(false)
-                                const pkg = findPackageForTransfer(transfer.packages[0]?.packageId)
-                                if (pkg) setViewTransferPackage(pkg)
-                              }}>
+                              <Button variant="outline" size="sm" className="w-full" onClick={() => openPackageById(transfer.packages[0]?.packageId)}>
                                 View details
                               </Button>
                             ) : (
-                              <Button variant="outline" size="sm" className="w-full" onClick={() => { setOpen(false); setViewTransferPackages(transfer) }}>
+                              <Button variant="outline" size="sm" className="w-full" onClick={() => setViewTransferPackages(transfer)}>
                                 View packages
                               </Button>
                             )}
@@ -401,8 +438,8 @@ export function CustodyInbox() {
       {/* Transfer packages list drawer */}
       {viewTransferPackages && (
         <>
-          <div className="fixed inset-0 z-40 bg-foreground/20" onClick={() => setViewTransferPackages(null)} aria-hidden="true" />
-          <aside className="fixed inset-y-0 left-0 z-50 flex w-full max-w-md flex-col border-r border-border bg-card shadow-2xl">
+          <div className="fixed inset-0 z-[70] bg-foreground/20" onClick={() => setViewTransferPackages(null)} aria-hidden="true" />
+          <aside className="fixed inset-y-0 left-0 z-[70] flex w-full max-w-md flex-col border-r border-border bg-card shadow-2xl">
             <div className="flex items-start justify-between gap-4 border-b border-border p-5">
               <div>
                 <p className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">Transfer packages</p>

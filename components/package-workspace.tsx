@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Box, Loader2, PackageCheck, Plus, Search } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -16,6 +16,10 @@ import { PackageDetail } from '@/components/workspace/package-detail'
 import { CreatePackageDialog } from '@/components/workspace/create-package-dialog'
 
 type FilterKey = 'all' | 'at-office' | 'in-transit' | 'delivered' | 'other'
+
+// Restores the list scroll position after a reload — the store hydrates the
+// cached package pages, this restores where the user was reading.
+const SCROLL_KEY = 'cavgo.workspaceScroll'
 
 interface FilterTab {
   key: FilterKey
@@ -58,6 +62,71 @@ export function PackageWorkspace() {
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [createOpen, setCreateOpen] = useState(false)
   const meId = user?.id ?? ''
+
+  // Save window scroll position (page scrolls on the window) so a reload can
+  // restore it. Passive listener — runs constantly, must never block scrolling.
+  useEffect(() => {
+    const onScroll = () => {
+      try {
+        sessionStorage.setItem(SCROLL_KEY, String(window.scrollY))
+      } catch {
+        /* ignore */
+      }
+    }
+    window.addEventListener('scroll', onScroll, { passive: true })
+    return () => window.removeEventListener('scroll', onScroll)
+  }, [])
+
+  // Restore scroll once content has rendered (cached pages hydrate
+  // synchronously from the store, so this runs on the first paint after a
+  // reload). If the saved position is deeper than the restored content, keep
+  // loading pages and re-scrolling until the position is reachable again.
+  const pendingScrollRef = useRef<number | null>(null)
+  useEffect(() => {
+    if (workspace.packages.length === 0) return
+    if (pendingScrollRef.current === null) {
+      try {
+        const saved = Number(sessionStorage.getItem(SCROLL_KEY) ?? '0')
+        // -1 marks "nothing to restore" so we don't retry every render.
+        pendingScrollRef.current = saved > 0 ? saved : -1
+      } catch {
+        pendingScrollRef.current = -1
+      }
+    }
+    const target = pendingScrollRef.current
+    if (target <= 0) return
+    window.scrollTo(0, target)
+    if (window.scrollY >= target - 50) {
+      // Reached (or passed) the saved position — done.
+      pendingScrollRef.current = -1
+    } else if (workspace.hasMorePackages) {
+      // Content still too short to reach the position — grow it and retry.
+      void workspace.loadMorePackages()
+    } else {
+      pendingScrollRef.current = -1
+    }
+  }, [workspace.packages.length, workspace.hasMorePackages, workspace.loadMorePackages])
+
+  // Infinite scroll: a sentinel row at the end of the list requests the next
+  // page when it scrolls into view.
+  const sentinelRef = useRef<HTMLDivElement | null>(null)
+  const loadMorePackages = workspace.loadMorePackages
+  const hasMorePackages = workspace.hasMorePackages
+  const loadingMore = workspace.loadingMore
+  useEffect(() => {
+    const el = sentinelRef.current
+    if (!el || !hasMorePackages || loadingMore) return
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          void loadMorePackages()
+        }
+      },
+      { rootMargin: '400px 0px' },
+    )
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [hasMorePackages, loadingMore, loadMorePackages])
 
   const filtered = useMemo(() => {
     const tab = FILTER_TABS.find((t) => t.key === filter) ?? FILTER_TABS[0]
@@ -185,6 +254,25 @@ export function PackageWorkspace() {
               </div>
             </button>
           ))}
+
+          {/* Infinite-scroll sentinel — appended after the last row. */}
+          {hasMorePackages ? (
+            <div ref={sentinelRef} className="grid place-items-center py-4 text-muted-foreground">
+              {loadingMore ? (
+                <div className="flex items-center gap-2 text-xs">
+                  <Loader2 className="size-4 animate-spin" /> Loading more…
+                </div>
+              ) : (
+                <p className="text-[10px] text-muted-foreground/70">Scroll for more</p>
+              )}
+            </div>
+          ) : (
+            filtered.length > 0 && (
+              <p className="py-3 text-center text-[10px] text-muted-foreground/60">
+                All {workspace.packagesTotalCount} package{workspace.packagesTotalCount === 1 ? '' : 's'} loaded
+              </p>
+            )
+          )}
         </div>
       )}
 

@@ -139,8 +139,10 @@ export interface DeliveryPackage {
   people: PackagePerson[]
   locations: PackageLocation[]
   details: PackageDetails | null
-  events: PackageEvent[]
-  custody: PackageCustody[]
+  // Optional: list queries select a slim field set that omits these —
+  // only detail queries (fetchPackageById) return them.
+  events?: PackageEvent[]
+  custody?: PackageCustody[]
   transfers: Transfer[]
   createdAt: string
   updatedAt: string
