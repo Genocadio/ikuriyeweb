@@ -7,9 +7,10 @@ import { ToastContainer } from 'react-toastify'
 import 'react-toastify/dist/ReactToastify.css'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { ALLOWED_PORTAL_ROLES, useAuth } from '@/lib/auth'
+import { DENIED_PORTAL_ROLES, useAuth } from '@/lib/auth'
 import { useWorkspace } from '@/lib/store'
 import { LoginScreen } from '@/components/login-screen'
+import { OnboardingGate } from '@/components/onboarding'
 import { displayName, initials, timeAgo } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
@@ -92,7 +93,7 @@ export function WorkerShell({ children }: { children: React.ReactNode }) {
     )
   }
 
-  if (!ALLOWED_PORTAL_ROLES.includes(user.role)) {
+  if (DENIED_PORTAL_ROLES.includes(user.role)) {
     return (
       <div className="grid min-h-screen place-items-center bg-background p-4">
         <div className="w-full max-w-sm rounded-2xl border border-border bg-card p-6 text-center shadow-sm">
@@ -102,9 +103,9 @@ export function WorkerShell({ children }: { children: React.ReactNode }) {
           <h1 className="mt-4 text-base font-semibold">Worker access required</h1>
           <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
             {user.email ?? 'This account'} is signed in with role{' '}
-            <span className="font-mono font-semibold">{user.role}</span>. The worker console is available to{' '}
-            <span className="font-mono">WORKER</span> and <span className="font-mono">DRIVER</span> accounts. Ask a
-            CavGo administrator to assign the role.
+            <span className="font-mono font-semibold">{user.role}</span>. The worker console is for{' '}
+            <span className="font-mono">WORKER</span> and <span className="font-mono">DRIVER</span> accounts — use the
+            CavGo admin console instead.
           </p>
           <Button className="mt-5 h-9 w-full gap-2 bg-[#1f2523] text-white hover:bg-[#343b37]" onClick={logout}>
             <LogOut className="size-3.5" /> Log out
@@ -117,7 +118,8 @@ export function WorkerShell({ children }: { children: React.ReactNode }) {
   const name = displayName(user)
   const unread = workspace.unread
   return (
-    <div className="min-h-screen bg-background text-foreground">
+    <OnboardingGate>
+      <div className="min-h-screen bg-background text-foreground">
       <ToastContainer position="top-right" autoClose={3200} newestOnTop theme="light" toastClassName="font-sans text-sm" />
       <header className="sticky top-0 z-20 flex min-h-20 items-center justify-between border-b border-border bg-background/95 px-4 backdrop-blur sm:px-6 lg:px-10">
         <Link href="/" className="flex shrink-0 items-center gap-3" aria-label="CavGo packages">
@@ -256,6 +258,7 @@ export function WorkerShell({ children }: { children: React.ReactNode }) {
         </span>
         <span className="hidden font-mono uppercase tracking-widest sm:block">Worker console · {user.role}</span>
       </footer>
-    </div>
+      </div>
+    </OnboardingGate>
   )
 }

@@ -8,7 +8,13 @@ import type { Role, User } from './types'
 const SESSION_KEY = 'cavgo.session'
 const USER_KEY = 'cavgo.user'
 
-export const ALLOWED_PORTAL_ROLES: Role[] = ['WORKER', 'DRIVER']
+/**
+ * Roles that are NOT allowed in the worker portal. Staff/admins manage
+ * workers through their own consoles; everyone else (including CUSTOMER — who
+ * can join a company through the portal) may sign in and go through the
+ * company onboarding flow, which grants the WORKER role on approval.
+ */
+export const DENIED_PORTAL_ROLES: ReadonlyArray<string> = ['SUPER_ADMIN', 'ADMIN', 'FLEET_MANAGER', 'SUPERVISOR']
 
 const NEXXAUTH_BASE_URL: string = process.env.NEXT_PUBLIC_NEXXAUTH_BASE_URL?.replace(/\/+$/, '') || ''
 const NEXXAUTH_CLIENT_ID: string = process.env.NEXT_PUBLIC_NEXXAUTH_CLIENT_ID || ''

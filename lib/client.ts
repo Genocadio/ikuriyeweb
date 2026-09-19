@@ -112,6 +112,81 @@ function isAuthFailure(
   )
 }
 
+export interface RestOptions {
+  method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
+  body?: unknown
+  token?: string | null
+  signal?: AbortSignal
+}
+
+export interface RestResult<T> {
+  status: number
+  data: T | null
+}
+
+/**
+ * Minimal REST client for JSON endpoints (cavgomain via the gateway's /main
+ * namespace, cavgotrips, etc.). Mirrors `gql()`'s auth behaviour: a rejected
+ * JWT triggers the registered auth handler and one retry with the fresh token;
+ * infrastructure failures surface as ApiError with status 0 / 5xx.
+ */
+export async function rest<T = unknown>(path: string, options: RestOptions = {}): Promise<RestResult<T>> {
+  let retried = false
+
+  const run = async (authToken: string | null): Promise<RestResult<T>> => {
+    const headers: Record<string, string> = {}
+    if (options.body !== undefined) headers['Content-Type'] = 'application/json'
+    if (authToken) headers['Authorization'] = `Bearer ${authToken}`
+
+    const url = path.startsWith('http') ? path : `${API_URL}${path}`
+
+    let response: Response
+    try {
+      response = await fetch(url, {
+        method: options.method ?? 'GET',
+        headers,
+        body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
+        signal: options.signal,
+      })
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') throw error
+      throw new ApiError(`Cannot reach the backend at ${url}. Is the CavGo API running?`, { status: 0 })
+    }
+
+    let data: T | null = null
+    if (response.status !== 204) {
+      try {
+        data = await response.json()
+      } catch {
+        data = null
+      }
+    }
+
+    if (response.status === 401 && !retried && authErrorHandler) {
+      retried = true
+      const outcome = await authErrorHandler()
+      if (outcome.token) return run(outcome.token)
+      if (outcome.retriable) {
+        throw new ApiError('Could not refresh your session — check your connection and try again.', {
+          status: 0,
+        })
+      }
+    }
+
+    if (!response.ok) {
+      const message =
+        data && typeof data === 'object' && 'message' in data && typeof (data as { message?: unknown }).message === 'string'
+          ? (data as { message: string }).message
+          : `Request failed (HTTP ${response.status})`
+      throw new ApiError(message, { status: response.status })
+    }
+
+    return { status: response.status, data }
+  }
+
+  return run(options.token ?? null)
+}
+
 export async function gql<T>({ query, variables, token, signal }: GqlOptions): Promise<T> {
   // Refresh-on-401: when the backend rejects the token, the registered auth
   // handler refreshes it via Nexxauth and the request is retried once

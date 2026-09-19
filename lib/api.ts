@@ -1,8 +1,12 @@
-import { gql, LOCATIONS_URL } from './client'
+import { gql, LOCATIONS_URL, rest } from './client'
 import type {
+  CompanyAccessRequestStatus,
+  CompanyOffice,
+  CompanyPreview,
   DeliveryCodeResult,
   DeliveryPackage,
   DeliveryPackagePage,
+  MyCompany,
   Notice,
   PackageCreation,
   PackageItem,
@@ -100,6 +104,178 @@ export async function searchLocations(query: string, limit = 20): Promise<TripLo
   } catch {
     return []
   }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Company access / onboarding (cavgomain REST via the gateway's /main namespace)
+// ─────────────────────────────────────────────────────────────────────────────
+
+function toMyCompany(raw: {
+  id?: number | string
+  companyId?: number | string | null
+  companyName?: string | null
+  role?: string | null
+  firstName?: string | null
+  lastName?: string | null
+  email?: string | null
+  phone?: string | null
+  office?: {
+    id?: number | string | null
+    name?: string | null
+    companyName?: string | null
+    address?: string | null
+    city?: string | null
+    phone?: string | null
+  } | null
+} | null): MyCompany | null {
+  if (!raw) return null
+  return {
+    id: String(raw.id),
+    companyId: raw.companyId != null ? String(raw.companyId) : null,
+    companyName: raw.companyName ?? null,
+    role: raw.role ?? null,
+    firstName: raw.firstName ?? null,
+    lastName: raw.lastName ?? null,
+    email: raw.email ?? null,
+    phone: raw.phone ?? null,
+    office: raw.office
+      ? {
+          id: String(raw.office.id),
+          name: raw.office.name ?? null,
+          companyName: raw.office.companyName ?? null,
+          address: raw.office.address ?? null,
+          city: raw.office.city ?? null,
+          phone: raw.office.phone ?? null,
+        }
+      : null,
+  }
+}
+
+/** The authenticated user's company membership, or null when not a member. */
+export function fetchMyCompany(token: string): Promise<MyCompany | null> {
+  return rest<{
+    id?: number | string
+    companyId?: number | string | null
+    companyName?: string | null
+    role?: string | null
+    firstName?: string | null
+    lastName?: string | null
+    email?: string | null
+    phone?: string | null
+    office?: { id?: number | string | null; name?: string | null; companyName?: string | null; address?: string | null; city?: string | null; phone?: string | null } | null
+  }>('/main/staff/me', { token }).then((res) => toMyCompany(res.data))
+}
+
+function toRequestStatus(raw: {
+  id?: number | string
+  status?: string | null
+  companyId?: number | string | null
+  companyName?: string | null
+  role?: string | null
+  rejectionReason?: string | null
+  createdAt?: string | null
+} | null): CompanyAccessRequestStatus | null {
+  if (!raw) return null
+  const status = raw.status === 'APPROVED' || raw.status === 'REJECTED' ? raw.status : 'PENDING'
+  return {
+    id: String(raw.id),
+    status,
+    companyId: raw.companyId != null ? String(raw.companyId) : null,
+    companyName: raw.companyName ?? null,
+    role: raw.role ?? null,
+    rejectionReason: raw.rejectionReason ?? null,
+    createdAt: raw.createdAt ?? null,
+  }
+}
+
+/** The user's latest company access request (status + reason), or null if none. */
+export function fetchMyCompanyAccessStatus(token: string): Promise<CompanyAccessRequestStatus | null> {
+  return rest<{
+    id?: number | string
+    status?: string | null
+    companyId?: number | string | null
+    companyName?: string | null
+    role?: string | null
+    rejectionReason?: string | null
+    createdAt?: string | null
+  }>('/main/company-access-requests/my-status', { token }).then((res) => toRequestStatus(res.data))
+}
+
+/** Submits a company access request for the given company code. */
+export function requestCompanyAccess(token: string, companyCode: string): Promise<CompanyAccessRequestStatus> {
+  return rest<{
+    id?: number | string
+    status?: string | null
+    companyId?: number | string | null
+    companyName?: string | null
+    role?: string | null
+    rejectionReason?: string | null
+    createdAt?: string | null
+  }>('/main/company-access-requests', { token, method: 'POST', body: { companyCode } }).then((res) => {
+    const mapped = toRequestStatus(res.data)
+    if (!mapped) throw new Error('The company access request was not accepted by CavGo.')
+    return mapped
+  })
+}
+
+/** Validates a company code and returns company details (for the join screen). */
+export function fetchCompanyByCode(token: string, code: string): Promise<CompanyPreview | null> {
+  return rest<{
+    id?: number | string
+    companyName?: string | null
+    address?: string | null
+    city?: string | null
+    status?: string | null
+  }>(`/main/companies/by-code/${encodeURIComponent(code)}`, { token }).then((res) => {
+    const raw = res.data
+    if (!raw || raw.companyName == null) return null
+    return {
+      id: String(raw.id),
+      companyName: raw.companyName,
+      address: raw.address ?? null,
+      city: raw.city ?? null,
+      status: raw.status ?? null,
+    }
+  })
+}
+
+/** Offices of a company — for the "pick your office" step after approval. */
+export function fetchOffices(token: string, companyId: string): Promise<CompanyOffice[]> {
+  return rest<{
+    id?: number | string
+    name?: string | null
+    companyName?: string | null
+    address?: string | null
+    city?: string | null
+    phone?: string | null
+  }[]>(`/main/offices?companyId=${encodeURIComponent(companyId)}`, { token }).then((res) =>
+    (res.data ?? []).map((o) => ({
+      id: String(o.id),
+      name: o.name ?? null,
+      companyName: o.companyName ?? null,
+      address: o.address ?? null,
+      city: o.city ?? null,
+      phone: o.phone ?? null,
+    })),
+  )
+}
+
+/** Self-service office assignment (worker picks their office after approval). */
+export function assignMyOffice(token: string, userId: string, officeId: string): Promise<MyCompany | null> {
+  return rest<{
+    id?: number | string
+    companyId?: number | string | null
+    companyName?: string | null
+    role?: string | null
+    firstName?: string | null
+    lastName?: string | null
+    email?: string | null
+    phone?: string | null
+    office?: { id?: number | string | null; name?: string | null; companyName?: string | null; address?: string | null; city?: string | null; phone?: string | null } | null
+  }>(`/main/staff/${encodeURIComponent(userId)}/office/${encodeURIComponent(officeId)}`, {
+    token,
+    method: 'PUT',
+  }).then((res) => toMyCompany(res.data))
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

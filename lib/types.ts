@@ -5,6 +5,50 @@
 
 export type Role = 'SUPER_ADMIN' | 'ADMIN' | 'CUSTOMER' | 'WORKER' | 'DRIVER'
 export type UserStatus = 'ACTIVE' | 'DISABLED' | 'PENDING'
+
+// ─── Company access / onboarding (cavgomain REST via gateway /main/**) ───────
+
+/** Mirror of cavgomain CompanyAccessRequestStatus enum. */
+export type CompanyRequestStatus = 'PENDING' | 'APPROVED' | 'REJECTED'
+
+export interface CompanyAccessRequestStatus {
+  id: string
+  status: CompanyRequestStatus
+  companyId?: string | null
+  companyName?: string | null
+  role?: string | null
+  rejectionReason?: string | null
+  createdAt?: string | null
+}
+
+export interface CompanyOffice {
+  id: string
+  name: string | null
+  companyName: string | null
+  address: string | null
+  city: string | null
+  phone: string | null
+}
+
+export interface MyCompany {
+  id: string
+  companyId: string | null
+  companyName: string | null
+  role: string | null
+  firstName?: string | null
+  lastName?: string | null
+  email?: string | null
+  phone?: string | null
+  office: CompanyOffice | null
+}
+
+export interface CompanyPreview {
+  id: string
+  companyName: string
+  address?: string | null
+  city?: string | null
+  status?: string | null
+}
 export type DeliveryType = 'OPEN' | 'FIXED_ROUTE'
 export type CustodianRole = 'WORKER' | 'DRIVER' | 'OFFICE' | 'RECEIVER'
 export type LocationType = 'ORIGIN' | 'DESTINATION'
