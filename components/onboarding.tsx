@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import {
   AlertCircle,
   ArrowLeft,
@@ -28,44 +28,31 @@ interface GateProps {
 }
 
 /**
- * Renders the worker workspace only once the user is a confirmed company
- * member. Signed-in users who aren't members yet go through the onboarding
- * walkthrough: enter company code → wait for approval → pick an office.
+ * The workspace renders immediately for any signed-in (non-denied) user — the
+ * membership check runs silently in the background and only reroutes those who
+ * actually need it: workers without an office land on the office picker,
+ * non-members on the company request screen. Users who already completed the
+ * steps never see them.
  */
 export function OnboardingGate({ children }: GateProps) {
-  const { token, user, logout, handleSessionExpired } = useAuth()
-  const onboarding = useOnboarding(token, handleSessionExpired)
+  const { token, user, logout, handleSessionExpired, canRefresh, refreshSession } = useAuth()
+  const roleRefreshFired = useRef(false)
+
+  // After the membership check confirms the user belongs to a company, re-issue
+  // the token once if its role hasn't caught up with Nexxauth (e.g. CUSTOMER
+  // still, but approved as WORKER). The fresh token carries the new role so the
+  // ikuriye workspace role checks (hasAnyRole('WORKER','DRIVER')) pass.
+  const onRoleRefreshNeeded = useCallback(() => {
+    if (roleRefreshFired.current || !canRefresh) return
+    roleRefreshFired.current = true
+    void refreshSession().then((outcome) => {
+      if (!outcome.token) roleRefreshFired.current = false
+    })
+  }, [canRefresh, refreshSession])
+
+  const onboarding = useOnboarding(token, handleSessionExpired, user?.role ?? null, onRoleRefreshNeeded)
 
   if (onboarding.phase === 'member') return <>{children}</>
-
-  if (onboarding.phase === 'checking') {
-    if (onboarding.error) {
-      return (
-        <OnboardingShell user={user} logout={logout}>
-          <div className="flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 p-3 text-xs leading-relaxed text-red-700">
-            <AlertCircle className="mt-0.5 size-3.5 shrink-0" />
-            <span>{onboarding.error}</span>
-          </div>
-          <div className="mt-5 flex flex-col gap-2">
-            <Button
-              className="h-9 w-full gap-2 bg-[#1f2523] text-white hover:bg-[#343b37]"
-              onClick={() => void onboarding.refresh()}
-            >
-              <RefreshCcw className="size-3.5" /> Try again
-            </Button>
-          </div>
-        </OnboardingShell>
-      )
-    }
-    return (
-      <div className="grid min-h-screen place-items-center bg-background">
-        <div className="flex flex-col items-center gap-3 text-muted-foreground">
-          <Loader2 className="size-6 animate-spin" />
-          <p className="text-xs">Checking your company…</p>
-        </div>
-      </div>
-    )
-  }
 
   return (
     <OnboardingShell user={user} logout={logout}>

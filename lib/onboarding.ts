@@ -5,7 +5,7 @@ import { isAuthError } from './client'
 import * as api from './api'
 import type { CompanyAccessRequestStatus, CompanyOffice, MyCompany } from './types'
 
-export type OnboardingPhase = 'checking' | 'join' | 'waiting' | 'office' | 'member'
+export type OnboardingPhase = 'join' | 'waiting' | 'office' | 'member'
 
 export interface OnboardingState {
   /** 'member' → the worker is attached to a company and can open the workspace. */
@@ -29,18 +29,34 @@ export interface OnboardingActions {
 export const WAITING_POLL_INTERVAL_MS = 20_000
 
 /**
- * Worker onboarding state machine for the web portal:
+ * Worker onboarding state machine for the web portal.
  *
- *  checking → join (no company, no pending request)
- *           → waiting (request pending approval — polls every 20s)
- *           → office  (approved but no office chosen yet → office picker)
- *           → member  (company + office set → render the workspace)
+ * The phase starts optimistically as 'member' so a worker with a company and an
+ * office lands straight in the workspace — no "checking" step. The membership
+ * check then runs silently in the background and corrects course only when
+ * needed:
+ *
+ *  member (has company + office) → stays in the workspace
+ *  member, no office             → office picker
+ *  not a member, request pending → waiting (polls every 20s)
+ *  not a member ->                join screen (enter the company code)
  *
  * Company data is read from cavgomain via the gateway's /main namespace.
+ *
+ * @param role the role carried by the current JWT (from the Nexxauth session).
+ *        A role change in Nexxauth only lands in a NEW token, so once the
+ *        membership check confirms the user belongs to a company but their
+ *        token role is not yet WORKER/DRIVER, {@code onRoleRefreshNeeded} is
+ *        fired so the host can proactively re-issue the token via /auth/refresh.
  */
-export function useOnboarding(token: string | null, onAuthError: () => void): OnboardingState & OnboardingActions {
+export function useOnboarding(
+  token: string | null,
+  onAuthError: () => void,
+  role: string | null,
+  onRoleRefreshNeeded: () => void,
+): OnboardingState & OnboardingActions {
   const [state, setState] = useState<OnboardingState>({
-    phase: 'checking',
+    phase: 'member',
     company: null,
     pendingAccess: null,
     offices: [],
@@ -63,6 +79,13 @@ export function useOnboarding(token: string | null, onAuthError: () => void): On
           pendingAccess: null,
           error: null,
         }))
+        // The user is a company member, but their token role has not caught up
+        // with the role Nexxauth now assigns (e.g. approved as WORKER while the
+        // token still says CUSTOMER). Request a fresh token so the workspace's
+        // role checks pass.
+        if (role && role !== 'WORKER' && role !== 'DRIVER') {
+          onRoleRefreshNeeded()
+        }
         return
       }
       // Not a company member yet — what's the status of any access request?
@@ -84,7 +107,7 @@ export function useOnboarding(token: string | null, onAuthError: () => void): On
         error: error instanceof Error ? error.message : 'Could not check your company status.',
       }))
     }
-  }, [token, onAuthError])
+  }, [token, onAuthError, role, onRoleRefreshNeeded])
 
   // Run the membership check on mount / when a token becomes available.
   useEffect(() => {
