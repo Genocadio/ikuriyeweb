@@ -7,69 +7,35 @@ import {
   Clock3,
   KeyRound,
   MapPin,
-  PackageCheck,
-  Send,
   ShieldCheck,
   Truck,
   UserRound,
   X,
 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
 import { useAuth } from '@/lib/auth'
 import { useWorkspace } from '@/lib/store'
 import { fetchPackageById, toPackageItem } from '@/lib/api'
 import {
   ACCEPTOR_LABEL,
-  actionsForPackage,
   RULE_TONE,
   statusClass,
   statusLabel,
   TRANSFER_RULE_LABEL,
-  type PackageAction,
 } from '@/lib/status'
 import { formatTimestamp, timeAgo } from '@/lib/format'
 import type { PackageItem } from '@/lib/types'
 import { cn } from '@/lib/utils'
-import { AssignDriverDialog } from './assign-driver-dialog'
-import { DriverPickerDialog } from './driver-picker-dialog'
-import { CodePromptDialog, CodeRevealDialog, ConfirmDialog } from './dialogs'
-
-const ACTION_LABEL: Record<PackageAction['kind'], string> = {
-  'accept-transfer': 'Accept custody',
-  'accept-secure': 'Accept with code',
-  'request-transfer': 'Request transfer',
-  claim: 'Claim package',
-  'approve-request': 'Approve request',
-  'reject-request': 'Reject request',
-  'regenerate-transfer-code': 'Regenerate transfer code',
-  'cancel-transfer': 'Cancel transfer',
-  'create-transfer': 'Transfer to driver',
-  'assign-driver': 'Assign driver',
-  'mark-in-transit': 'Mark in transit',
-  'arrive-destination': 'Arrived at destination office',
-  'ready-for-collection': 'Ready for collection',
-  'start-delivery': 'Deliver',
-  'confirm-delivery': 'Enter delivery code',
-  'regenerate-delivery-code': 'Regenerate delivery code',
-  'cancel-package': 'Cancel package',
-}
 
 export function PackageDetail({ item, onClose }: { item: PackageItem | null; onClose: () => void }) {
   const { user, token } = useAuth()
   const workspace = useWorkspace()
-  const [confirm, setConfirm] = useState<{ title: string; description?: string; label?: string; run: () => Promise<unknown> } | null>(null)
-  const [codePrompt, setCodePrompt] = useState<{ title: string; description?: string; label?: string; initialValue?: string; onSubmit: (code: string) => Promise<void> } | null>(null)
-  const [reveal, setReveal] = useState<{ title: string; description?: string; code: string } | null>(null)
-  const [assignOpen, setAssignOpen] = useState(false)
-  const [createTransferOpen, setCreateTransferOpen] = useState(false)
-  const [busy, setBusy] = useState(false)
+  const [full, setFull] = useState<PackageItem | null>(null)
 
   // List queries return a slim field set (no events/custody/media) to keep the
   // workspace fast. When the drawer opens, fetch the full package so the
   // timeline, custody trail and photos render; keep the list item visible in
   // the meantime.
-  const [full, setFull] = useState<PackageItem | null>(null)
   useEffect(() => {
     setFull(null)
     if (!item || !token) return
@@ -86,172 +52,15 @@ export function PackageDetail({ item, onClose }: { item: PackageItem | null; onC
     }
   }, [item?.id, token, user?.id])
 
-  if (!item) {
-    // Keep the one-time code reveal mounted while the drawer unmounts (e.g. after
-    // “Start delivery” closes the drawer on success).
-    return reveal ? (
-      <CodeRevealDialog
-        open
-        title={reveal.title}
-        description={reveal.description}
-        code={reveal.code}
-        onClose={() => setReveal(null)}
-      />
-    ) : null
-  }
+  if (!item) return null
   const pkg = full ?? item
   const meId = user?.id ?? ''
-  const actions = actionsForPackage(pkg, meId)
   const t = pkg.openTransfer
-
-  const runAction = async (action: PackageAction) => {
-    const code = pkg.trackingCode
-    switch (action.kind) {
-      case 'accept-transfer':
-        setConfirm({
-          title: `Accept ${code}?`,
-          description: 'Custody will move to you and the transfer will be completed.',
-          run: () => workspace.acceptTransfer(t!.id),
-        })
-        break
-      case 'accept-secure':
-        setCodePrompt({
-          title: `Accept ${code}`,
-          description: `This transfer is code protected (${TRANSFER_RULE_LABEL.SECURE}). Enter the 8-character code provided by the sender.`,
-          label: 'Verify & accept',
-          onSubmit: (value) => workspace.acceptTransfer(t!.id, value),
-        })
-        break
-      case 'request-transfer':
-        setConfirm({
-          title: `Request ${code}?`,
-          description: 'The transfer owner will confirm before custody moves to you.',
-          label: 'Send request',
-          run: () => workspace.acceptTransfer(t!.id),
-        })
-        break
-      case 'claim':
-        setConfirm({
-          title: `Claim ${code}?`,
-          description: 'Accepts the open transfer for this package into your custody.',
-          label: 'Claim package',
-          run: () => workspace.claimPackage(pkg.id),
-        })
-        break
-      case 'approve-request':
-        setConfirm({
-          title: 'Approve transfer request?',
-          description: 'The requestor becomes custodian of all packages in this transfer.',
-          run: () => workspace.confirmTransfer(t!.id),
-        })
-        break
-      case 'reject-request':
-        setConfirm({
-          title: 'Reject transfer request?',
-          description: 'The transfer returns to open status and the request is cleared.',
-          run: () => workspace.rejectTransfer(t!.id),
-        })
-        break
-      case 'regenerate-transfer-code':
-        setBusy(true)
-        try {
-          const newCode = await workspace.regenerateTransferCode(t!.id)
-          setReveal({ title: 'New transfer code', description: 'The previous code is now invalid. Share this one.', code: newCode })
-        } finally {
-          setBusy(false)
-        }
-        break
-      case 'cancel-transfer':
-        setConfirm({ title: 'Cancel this transfer?', description: 'Packages stay with the current custodian.', run: () => workspace.cancelTransfer(t!.id) })
-        break
-      case 'create-transfer':
-        setCreateTransferOpen(true)
-        break
-      case 'assign-driver':
-        setAssignOpen(true)
-        break
-      case 'mark-in-transit':
-        setConfirm({ title: `Mark ${code} in transit?`, run: () => workspace.advanceStatus(pkg.id, 'IN_TRANSIT') })
-        break
-      case 'arrive-destination':
-        setConfirm({ title: `Arrived at destination office?`, run: () => workspace.advanceStatus(pkg.id, 'DESTINATION_OFFICE') })
-        break
-      case 'ready-for-collection':
-        setConfirm({ title: 'Ready for collection?', run: () => workspace.advanceStatus(pkg.id, 'READY_FOR_COLLECTION') })
-        break
-      case 'start-delivery':
-        setConfirm({
-          title: `Start delivery for ${code}?`,
-          description: 'Generates a one-time 6-digit delivery code and moves the package to “awaiting confirmation”.',
-          label: 'Start delivery',
-          run: async () => {
-            const deliveryCode = await workspace.initiateDelivery(pkg.id)
-            setReveal({
-              title: 'Delivery code',
-              description: 'Share this code with the receiver — they use it to confirm the delivery.',
-              code: deliveryCode,
-            })
-          },
-        })
-        break
-      case 'confirm-delivery':
-        setCodePrompt({
-          title: `Confirm delivery of ${code}`,
-          description: 'Enter the 6-digit delivery code the receiver presented.',
-          label: 'Confirm delivery',
-          initialValue: workspace.getCode(pkg.id) ?? '',
-          onSubmit: (value) => workspace.confirmDelivery(pkg.id, value),
-        })
-        break
-      case 'regenerate-delivery-code':
-        setBusy(true)
-        try {
-          const deliveryCode = await workspace.regenerateDeliveryCode(pkg.id)
-          setReveal({ title: 'New delivery code', description: 'The previous code was invalidated. Share this one with the receiver.', code: deliveryCode })
-        } finally {
-          setBusy(false)
-        }
-        break
-      case 'cancel-package':
-        setConfirm({ title: `Cancel ${code}?`, description: 'Closes the package. This cannot be undone.', label: 'Cancel package', run: () => workspace.advanceStatus(pkg.id, 'CANCELLED', { notes: 'Cancelled from worker console' }) })
-        break
-      default:
-        break
-    }
-  }
-
-  const confirmRun = async () => {
-    if (!confirm) return
-    setBusy(true)
-    try {
-      await confirm.run()
-      setConfirm(null)
-      onClose()
-    } catch {
-      /* error toasted by the store */
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  const codeSubmit = async (codeValue: string) => {
-    if (!codePrompt) return
-    setBusy(true)
-    try {
-      await codePrompt.onSubmit(codeValue)
-      setCodePrompt(null)
-      onClose()
-    } catch {
-      /* error toasted by the store */
-    } finally {
-      setBusy(false)
-    }
-  }
 
   return (
     <>
       {/* z-[70] — above the custody-inbox FAB (z-[60]) so the inbox stays open
-          behind the drawer; shared dialogs (z-[80]) still layer on top. */}
+          behind the drawer. */}
       <div className="fixed inset-0 z-[70] bg-foreground/20" onClick={onClose} aria-hidden="true" />
       <aside className="fixed inset-y-0 left-0 z-[70] flex w-full max-w-xl flex-col border-r border-border bg-card shadow-2xl">
         <div className="flex items-start justify-between gap-4 border-b border-border p-5">
@@ -394,84 +203,12 @@ export function PackageDetail({ item, onClose }: { item: PackageItem | null; onC
             <div className="mt-4 flex items-start gap-2 rounded-xl border border-orange-200 bg-orange-50 p-3 text-xs text-orange-800">
               <MapPin className="mt-0.5 size-3.5 shrink-0" />
               <span>
-                Delivery code issued to the receiver — awaiting confirmation. You can confirm on their behalf if they
-                share the code with you.
+                Delivery code issued to the receiver — awaiting confirmation.
               </span>
             </div>
           )}
         </div>
-
-        {actions.length > 0 && (
-          <div className="border-t border-border bg-muted/30 p-4">
-            <div className="flex flex-wrap gap-2">
-              {actions.map((action) => (
-                <Button
-                  key={action.kind}
-                  variant={action.kind === 'cancel-transfer' || action.kind === 'cancel-package' || action.kind === 'reject-request' ? 'outline' : 'default'}
-                  className={cn(
-                    action.kind === 'cancel-transfer' || action.kind === 'cancel-package' || action.kind === 'reject-request'
-                      ? 'text-destructive'
-                      : 'bg-[#1f2523] text-white hover:bg-[#343b37]',
-                  )}
-                  onClick={() => void runAction(action)}
-                >
-                  {action.kind === 'create-transfer' && <Truck className="size-3.5" />}
-                  {action.kind === 'assign-driver' && <Truck className="size-3.5" />}
-                  {action.kind === 'start-delivery' && <Send className="size-3.5" />}
-                  {action.kind === 'claim' && <PackageCheck className="size-3.5" />}
-                  {action.kind === 'accept-transfer' && <Check className="size-3.5" />}
-                  {ACTION_LABEL[action.kind]}
-                </Button>
-              ))}
-            </div>
-          </div>
-        )}
       </aside>
-
-      <ConfirmDialog
-        open={Boolean(confirm)}
-        title={confirm?.title ?? ''}
-        description={confirm?.description}
-        confirmLabel={confirm?.label}
-        busy={busy}
-        onConfirm={() => void confirmRun()}
-        onClose={() => setConfirm(null)}
-      />
-      <CodePromptDialog
-        key={codePrompt ? `${pkg.id}-${codePrompt.title}` : 'none'}
-        open={Boolean(codePrompt)}
-        title={codePrompt?.title ?? ''}
-        description={codePrompt?.description}
-        confirmLabel={codePrompt?.label}
-        initialValue={codePrompt?.initialValue ?? ''}
-        busy={busy}
-        onConfirm={(value) => void codeSubmit(value)}
-        onClose={() => setCodePrompt(null)}
-      />
-      <CodeRevealDialog
-        open={Boolean(reveal)}
-        title={reveal?.title ?? ''}
-        description={reveal?.description}
-        code={reveal?.code ?? null}
-        onClose={() => setReveal(null)}
-      />
-      <AssignDriverDialog
-        open={assignOpen}
-        packageId={pkg.id}
-        packageCode={pkg.trackingCode}
-        onClose={() => setAssignOpen(false)}
-      />
-      <DriverPickerDialog
-        open={createTransferOpen}
-        title={`Create transfer for ${pkg.trackingCode}`}
-        description="Select a driver who will pick up this package. A transfer will be created for them."
-        onConfirm={async (driverId) => {
-          await workspace.createTransferForPackages([pkg.id], 'AUTO', driverId)
-        }}
-        onClose={() => setCreateTransferOpen(false)}
-      />
     </>
   )
 }
-
-

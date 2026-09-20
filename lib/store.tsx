@@ -11,7 +11,8 @@ import { toPackageItem } from './api'
 
 const CODES_KEY = 'cavgo.deliveryCodes'
 const SECURE_KEY = 'cavgo.secureTransferCodes'
-// Page size for the workspace package list — infinite scroll appends pages.
+// Page size for the workspace package list — server-side pagination fetches
+// one page at a time; navigating pages replaces the visible list.
 const PACKAGES_PAGE_SIZE = 25
 // sessionStorage cache of loaded package pages — a reload paints the previously
 // loaded list (and restores scroll) instantly instead of waiting for the
@@ -32,7 +33,8 @@ interface WorkspaceState {
   /** Notice feed is loading. */
   noticesLoading: boolean
   refreshing: boolean
-  loadingMore: boolean
+  /** A single package page fetch (pager navigation) is in flight. */
+  pageLoading: boolean
   error: string | null
   lastSync: number | null
   packages: PackageItem[]
@@ -55,7 +57,7 @@ interface WorkspaceState {
 
 interface WorkspaceActions {
   refresh: () => Promise<void>
-  loadMorePackages: () => Promise<void>
+  goToPage: (page: number) => Promise<void>
   acceptTransfer: (transferId: string, code?: string, opts?: { successMessage?: string }) => Promise<void>
   claimPackage: (packageId: string) => Promise<void>
   createPackage: (input: api.CreatePackageInput) => Promise<{
@@ -111,7 +113,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     operationalLoading: false,
     noticesLoading: false,
     refreshing: false,
-    loadingMore: false,
+    pageLoading: false,
     error: null,
     lastSync: null,
     packages: [],
@@ -135,7 +137,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
   // the UI, kept in refs so fetch callbacks never read stale closures).
   const packagesPageRef = useRef(0)
   const packagesTotalPagesRef = useRef(1)
-  const loadingMoreRef = useRef(false)
+  const pageLoadingRef = useRef(false)
   const packagesCacheHydratedRef = useRef(false)
   // Latest state for effects that must not depend on every state change.
   const stateRef = useRef(state)
@@ -171,37 +173,27 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     [handleSessionExpired, patch],
   )
 
-  // Packages — the PRIMARY board content. Refetches ALL loaded pages
-  // (0..packagesPageRef) so periodic syncs and post-mutation refreshes keep the
-  // infinite-scrolled list intact. It runs independently of the slower
-  // operational/notice fetches, so the list paints as soon as its own page
-  // lands even when the rest of the board is still loading.
+  // Packages — the PRIMARY board content. Server-side pagination: fetches the
+  // currently open page (page = packagesPageRef) and replaces the list, so
+  // periodic syncs and post-mutation refreshes land on the page the user is
+  // reading and the board never accumulates more than one page. It runs
+  // independently of the slower operational/notice fetches, so the list paints
+  // as soon as its own page lands even when the rest of the board is loading.
   const loadPackages = useCallback(async (): Promise<boolean> => {
     if (!token) return false
     try {
-      const pageCount = packagesPageRef.current + 1
-      const pkgResults = await Promise.all(
-        Array.from({ length: pageCount }, (_, i) =>
-          api.fetchMyPackages(token, { page: i, size: PACKAGES_PAGE_SIZE }),
-        ),
-      )
-
-      // Merge pages newest-first (server order) and dedupe by id.
-      const byId = new Map<string, DeliveryPackage>()
-      for (const res of pkgResults) {
-        for (const p of res.myPackages.items) byId.set(p.id, p)
-      }
-      const last = pkgResults[pkgResults.length - 1]!.myPackages
-      const loadedPage = pkgResults.length - 1
-      packagesPageRef.current = loadedPage
-      packagesTotalPagesRef.current = last.totalPages
-
+      const res = await api.fetchMyPackages(token, {
+        page: packagesPageRef.current,
+        size: PACKAGES_PAGE_SIZE,
+      })
+      packagesPageRef.current = res.myPackages.currentPage
+      packagesTotalPagesRef.current = res.myPackages.totalPages
       patch({
-        packages: [...byId.values()].map((p) => toPackageItem(p, meId)),
-        packagesPage: loadedPage,
-        packagesTotalPages: last.totalPages,
-        packagesTotalCount: last.totalCount,
-        hasMorePackages: loadedPage < last.totalPages - 1,
+        packages: res.myPackages.items.map((p) => toPackageItem(p, meId)),
+        packagesPage: res.myPackages.currentPage,
+        packagesTotalPages: res.myPackages.totalPages,
+        packagesTotalCount: res.myPackages.totalCount,
+        hasMorePackages: res.myPackages.currentPage < res.myPackages.totalPages - 1,
         error: null,
       })
       return true
@@ -247,36 +239,36 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     return results.some(Boolean)
   }, [loadPackages, loadOperational])
 
-  // Infinite scroll: fetch the next package page and append it.
-  const loadMorePackages = useCallback(async (): Promise<void> => {
-    if (!token || loadingMoreRef.current) return
-    const next = packagesPageRef.current + 1
-    if (next > packagesTotalPagesRef.current - 1) return
-    loadingMoreRef.current = true
-    patch({ loadingMore: true })
-    try {
-      const res = await api.fetchMyPackages(token, { page: next, size: PACKAGES_PAGE_SIZE })
-      packagesPageRef.current = next
-      packagesTotalPagesRef.current = res.myPackages.totalPages
-      const fresh = res.myPackages.items.map((p) => toPackageItem(p, meId))
-      patch((prev) => {
-        const byId = new Map(prev.packages.map((p) => [p.id, p]))
-        for (const item of fresh) byId.set(item.id, item)
-        return {
-          packages: [...byId.values()],
-          packagesPage: next,
-          packagesTotalCount: res.myPackages.totalCount,
+  // Server-side pagination: fetch a specific page and replace the visible list.
+  // Bounds are clamped to the known page range; re-fetching the current page is
+  // a no-op (sync + mutations already keep it fresh).
+  const goToPage = useCallback(
+    async (page: number): Promise<void> => {
+      if (!token || pageLoadingRef.current) return
+      const bounded = Math.max(0, Math.min(page, packagesTotalPagesRef.current - 1))
+      if (bounded === packagesPageRef.current) return
+      pageLoadingRef.current = true
+      patch({ pageLoading: true, error: null })
+      try {
+        const res = await api.fetchMyPackages(token, { page: bounded, size: PACKAGES_PAGE_SIZE })
+        packagesPageRef.current = res.myPackages.currentPage
+        packagesTotalPagesRef.current = res.myPackages.totalPages
+        patch({
+          packages: res.myPackages.items.map((p) => toPackageItem(p, meId)),
+          packagesPage: res.myPackages.currentPage,
           packagesTotalPages: res.myPackages.totalPages,
-          hasMorePackages: next < res.myPackages.totalPages - 1,
-        }
-      })
-    } catch (error) {
-      if (isAuthError(error)) handleSessionExpired()
-    } finally {
-      loadingMoreRef.current = false
-      patch({ loadingMore: false })
-    }
-  }, [token, meId, patch, handleSessionExpired])
+          packagesTotalCount: res.myPackages.totalCount,
+          hasMorePackages: res.myPackages.currentPage < res.myPackages.totalPages - 1,
+        })
+      } catch (error) {
+        if (isAuthError(error)) handleSessionExpired()
+      } finally {
+        pageLoadingRef.current = false
+        patch({ pageLoading: false })
+      }
+    },
+    [token, meId, patch, handleSessionExpired],
+  )
 
   // Notice feed — initial fetch + periodic sync fallback.
   const loadNotices = useCallback(async (): Promise<boolean> => {
@@ -303,7 +295,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     patch({ refreshing: false })
   }, [patch, loadAll])
 
-  // Persist loaded package pages so a reload restores the list (and scroll)
+  // Persist the currently open package page so a reload restores the list
   // without waiting for the network. Scoped to the signed-in user.
   useEffect(() => {
     if (status !== 'signedIn' || !meId) return
@@ -325,10 +317,9 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     }
   }, [status, meId, state.packages, state.packagesPage, state.packagesTotalPages, state.packagesTotalCount])
 
-  // Restore cached package pages (per user) BEFORE the first network sync so a
-  // reload paints the previously loaded list instantly; the workspace list
-  // component restores the matching scroll position. loadWorkspace then
-  // refetches the same pages in the background and refreshes the data.
+  // Restore the cached package page (per user) BEFORE the first network sync
+  // so a reload paints the previously open page instantly; loadWorkspace then
+  // refetches the same page in the background and refreshes the data.
   // Declared before the initial-load effect so hydration always wins the race.
   useEffect(() => {
     if (status !== 'signedIn' || !meId) return
@@ -750,7 +741,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     () => ({
       ...state,
       refresh,
-      loadMorePackages,
+      goToPage,
       acceptTransfer,
       claimPackage,
       createPackage,
@@ -772,7 +763,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
       getSecureCode,
     }),
     [
-      state, refresh, loadMorePackages, acceptTransfer, claimPackage, createPackage, assignDriver, advanceStatus,
+      state, refresh, goToPage, acceptTransfer, claimPackage, createPackage, assignDriver, advanceStatus,
       initiateDelivery, confirmDelivery, regenerateDeliveryCode, createTransferForPackages,
       cancelTransfer, confirmTransfer, rejectTransfer, regenerateTransferCode, markRead, markAllRead,
       saveCode, getCode, saveSecureCode, getSecureCode,

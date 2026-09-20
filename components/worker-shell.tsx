@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { useState } from 'react'
-import { Bell, CheckCheck, ChevronDown, Loader2, LogOut, RefreshCcw, Wifi, WifiOff } from 'lucide-react'
+import { Bell, CheckCheck, ChevronDown, Loader2, LogOut, RefreshCcw, WifiOff } from 'lucide-react'
 import { ToastContainer } from 'react-toastify'
 import 'react-toastify/dist/ReactToastify.css'
 import { Badge } from '@/components/ui/badge'
@@ -119,9 +119,9 @@ export function WorkerShell({ children }: { children: React.ReactNode }) {
   const unread = workspace.unread
   return (
     <OnboardingGate>
-      <div className="min-h-screen bg-background text-foreground">
+      <div className="flex h-dvh flex-col overflow-hidden bg-background text-foreground">
       <ToastContainer position="top-right" autoClose={3200} newestOnTop theme="light" toastClassName="font-sans text-sm" />
-      <header className="sticky top-0 z-20 flex min-h-20 items-center justify-between border-b border-border bg-background/95 px-4 backdrop-blur sm:px-6 lg:px-10">
+      <header className="z-20 flex min-h-20 shrink-0 items-center justify-between border-b border-border bg-background/95 px-4 backdrop-blur sm:px-6 lg:px-10">
         <Link href="/" className="flex shrink-0 items-center gap-3" aria-label="CavGo packages">
           <span className="grid size-9 place-items-center rounded-xl bg-[#f07c42] text-lg font-black text-white">C</span>
           <span className="hidden sm:block">
@@ -249,13 +249,9 @@ export function WorkerShell({ children }: { children: React.ReactNode }) {
         </div>
       )}
 
-      <main className="mx-auto w-full max-w-[1600px] px-4 py-6 sm:px-6 md:py-8 lg:px-10 lg:py-9">{children}</main>
+      <main className="mx-auto flex min-h-0 w-full max-w-[1600px] flex-1 flex-col px-4 pb-4 sm:px-6 lg:px-10">{children}</main>
 
-      <footer className="mx-auto flex w-full max-w-[1600px] items-center justify-between px-4 pb-8 text-[10px] text-muted-foreground sm:px-6 lg:px-10">
-        <span className="flex items-center gap-1.5">
-          <Wifi className="size-3" /> Connected to the CavGo API
-          {workspace.lastSync && <span>· synced {timeAgo(new Date(workspace.lastSync).toISOString())}</span>}
-        </span>
+      <footer className="mx-auto flex w-full max-w-[1600px] shrink-0 justify-end px-4 pb-5 pt-1 text-[10px] text-muted-foreground sm:px-6 lg:px-10">
         <span className="hidden font-mono uppercase tracking-widest sm:block">Worker console · {user.role}</span>
       </footer>
       </div>

@@ -1,7 +1,7 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { Loader2, PackageCheck, Send, Plus, Search, Truck, KeyRound } from 'lucide-react'
+import { useMemo, useState } from 'react'
+import { ChevronDown, ChevronLeft, ChevronRight, Loader2, PackageCheck, Plus, Search, Send, Truck, KeyRound, X } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -18,10 +18,6 @@ import { CodePromptDialog, CodeRevealDialog, ConfirmDialog } from '@/components/
 import { DriverPickerDialog } from '@/components/workspace/driver-picker-dialog'
 
 type FilterKey = 'all' | 'at-office' | 'in-transit' | 'delivered' | 'other'
-
-// Restores the list scroll position after a reload — the store hydrates the
-// cached package pages, this restores where the user was reading.
-const SCROLL_KEY = 'cavgo.workspaceScroll'
 
 interface FilterTab {
   key: FilterKey
@@ -60,75 +56,11 @@ export function PackageWorkspace() {
   const { user } = useAuth()
   const workspace = useWorkspace()
   const [query, setQuery] = useState('')
+  const [searchOpen, setSearchOpen] = useState(false)
   const [filter, setFilter] = useState<FilterKey>('all')
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [createOpen, setCreateOpen] = useState(false)
   const meId = user?.id ?? ''
-
-  // Save window scroll position (page scrolls on the window) so a reload can
-  // restore it. Passive listener — runs constantly, must never block scrolling.
-  useEffect(() => {
-    const onScroll = () => {
-      try {
-        sessionStorage.setItem(SCROLL_KEY, String(window.scrollY))
-      } catch {
-        /* ignore */
-      }
-    }
-    window.addEventListener('scroll', onScroll, { passive: true })
-    return () => window.removeEventListener('scroll', onScroll)
-  }, [])
-
-  // Restore scroll once content has rendered (cached pages hydrate
-  // synchronously from the store, so this runs on the first paint after a
-  // reload). If the saved position is deeper than the restored content, keep
-  // loading pages and re-scrolling until the position is reachable again.
-  const pendingScrollRef = useRef<number | null>(null)
-  useEffect(() => {
-    if (workspace.packages.length === 0) return
-    if (pendingScrollRef.current === null) {
-      try {
-        const saved = Number(sessionStorage.getItem(SCROLL_KEY) ?? '0')
-        // -1 marks "nothing to restore" so we don't retry every render.
-        pendingScrollRef.current = saved > 0 ? saved : -1
-      } catch {
-        pendingScrollRef.current = -1
-      }
-    }
-    const target = pendingScrollRef.current
-    if (target <= 0) return
-    window.scrollTo(0, target)
-    if (window.scrollY >= target - 50) {
-      // Reached (or passed) the saved position — done.
-      pendingScrollRef.current = -1
-    } else if (workspace.hasMorePackages) {
-      // Content still too short to reach the position — grow it and retry.
-      void workspace.loadMorePackages()
-    } else {
-      pendingScrollRef.current = -1
-    }
-  }, [workspace.packages.length, workspace.hasMorePackages, workspace.loadMorePackages])
-
-  // Infinite scroll: a sentinel row at the end of the list requests the next
-  // page when it scrolls into view.
-  const sentinelRef = useRef<HTMLDivElement | null>(null)
-  const loadMorePackages = workspace.loadMorePackages
-  const hasMorePackages = workspace.hasMorePackages
-  const loadingMore = workspace.loadingMore
-  useEffect(() => {
-    const el = sentinelRef.current
-    if (!el || !hasMorePackages || loadingMore) return
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries.some((entry) => entry.isIntersecting)) {
-          void loadMorePackages()
-        }
-      },
-      { rootMargin: '400px 0px' },
-    )
-    observer.observe(el)
-    return () => observer.disconnect()
-  }, [hasMorePackages, loadingMore, loadMorePackages])
 
   const filtered = useMemo(() => {
     const tab = FILTER_TABS.find((t) => t.key === filter) ?? FILTER_TABS[0]
@@ -209,69 +141,119 @@ export function PackageWorkspace() {
     return c
   }, [workspace.packages])
 
+  // Discrete pagination over the server-side package pages.
+  const page = workspace.packagesPage
+  const totalPages = workspace.packagesTotalPages
+  const totalCount = workspace.packagesTotalCount
+  const pageLoading = workspace.pageLoading
+  // Page numbers with ellipses when there are too many to render inline.
+  const pageNumbers = useMemo(() => {
+    const total = Math.max(totalPages, 1)
+    const current = Math.min(page + 1, total)
+    if (total <= 7) return Array.from({ length: total }, (_, i) => i + 1)
+    const list: (number | '…')[] = [1]
+    if (current > 3) list.push('…')
+    for (let i = Math.max(2, current - 1); i <= Math.min(total - 1, current + 1); i++) list.push(i)
+    if (current < total - 2) list.push('…')
+    list.push(total)
+    return list
+  }, [page, totalPages])
+
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex min-h-0 flex-1 flex-col gap-3">
       <CustodyInbox />
 
-      {/* Search + actions row */}
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-        <div className="relative min-w-0 flex-1">
-          <Search className="absolute left-3 top-2.5 size-4 text-muted-foreground" />
-          <Input
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search tracking code, recipient, destination, custodian…"
-            className="h-9 pl-9 text-xs"
-          />
-        </div>
-        <div className="flex items-center gap-2">
-          <Button size="sm" className="h-9 shrink-0 gap-2 bg-[#1f2523] text-white hover:bg-[#343b37]" onClick={() => setCreateOpen(true)}>
-            <Plus className="size-3.5" /> New package
-          </Button>
-        </div>
-      </div>
+      {/* Toolbar — search toggle, filter dropdown, and create action on one line */}
+      <div className="flex shrink-0 items-center gap-2">
+        <Button
+          size="sm"
+          variant="outline"
+          aria-expanded={searchOpen}
+          onClick={() => setSearchOpen((value) => !value)}
+          title={searchOpen ? 'Hide search' : 'Search packages'}
+          className={cn('h-9 shrink-0 gap-2 text-xs', searchOpen && 'bg-muted text-foreground')}
+        >
+          <Search className="size-3.5" />
+          <span className="max-w-40 truncate">{query.trim() ? `"${query}"` : 'Search'}</span>
+        </Button>
 
-      {/* Status filter tabs */}
-      <div className="flex gap-1 overflow-x-auto pb-1">
-        {FILTER_TABS.map((tab) => (
-          <button
-            key={tab.key}
-            onClick={() => setFilter(tab.key)}
-            className={cn(
-              'flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors',
-              filter === tab.key ? 'bg-[#1f2523] text-white' : 'bg-muted text-muted-foreground hover:bg-muted/80',
-            )}
+        <div className="relative shrink-0">
+          <select
+            value={filter}
+            onChange={(event) => setFilter(event.target.value as FilterKey)}
+            aria-label="Filter packages"
+            className="h-9 cursor-pointer appearance-none rounded-lg border border-border bg-muted pl-3 pr-8 text-xs font-medium text-muted-foreground outline-none transition-colors hover:bg-muted/80 focus-visible:ring-2 focus-visible:ring-ring"
           >
-            {tab.label}
-            <span className={cn('font-mono text-[10px]', filter === tab.key ? 'text-white/60' : 'text-muted-foreground/70')}>
-              {counts[tab.key]}
-            </span>
-          </button>
-        ))}
+            {FILTER_TABS.map((tab) => (
+              <option key={tab.key} value={tab.key}>
+                {tab.label} ({counts[tab.key]})
+              </option>
+            ))}
+          </select>
+          <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+        </div>
+
+        {searchOpen ? (
+          <div className="relative min-w-0 flex-1">
+            <Search className="absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Escape') {
+                  setQuery('')
+                  setSearchOpen(false)
+                }
+              }}
+              autoFocus
+              placeholder="Track code, recipient, destination, custodian…"
+              className="h-9 pl-9 pr-8 text-xs"
+            />
+            {query && (
+              <button
+                type="button"
+                aria-label="Clear search"
+                onClick={() => setQuery('')}
+                className="absolute right-2 top-1/2 grid size-5 -translate-y-1/2 place-items-center rounded text-muted-foreground hover:bg-muted"
+              >
+                <X className="size-3.5" />
+              </button>
+            )}
+          </div>
+        ) : (
+          <div className="min-w-0 flex-1" />
+        )}
+
+        <Button size="sm" className="h-9 shrink-0 gap-2 bg-[#1f2523] text-white hover:bg-[#343b37]" onClick={() => setCreateOpen(true)}>
+          <Plus className="size-3.5" /> New package
+        </Button>
       </div>
 
-      {/* Package list */}
-      {workspace.packagesLoading && workspace.packages.length === 0 ? (
-        <div className="grid place-items-center rounded-2xl border border-dashed border-border py-20 text-muted-foreground">
-          <div className="flex flex-col items-center gap-3">
-            <Loader2 className="size-6 animate-spin" />
-            <p className="text-xs">Loading packages…</p>
+      {/* Package list — the only scrollable region on the page */}
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-border bg-card">
+        {workspace.packagesLoading && workspace.packages.length === 0 ? (
+          <div className="grid min-h-0 flex-1 place-items-center px-4 text-muted-foreground">
+            <div className="flex flex-col items-center gap-3">
+              <Loader2 className="size-6 animate-spin" />
+              <p className="text-xs">Loading packages…</p>
+            </div>
           </div>
-        </div>
-      ) : filtered.length === 0 ? (
-        <div className="grid place-items-center rounded-2xl border border-dashed border-border py-16 text-center">
-          <p className="text-sm font-medium text-muted-foreground">
-            {query.trim() ? `No packages match "${query}".` : 'No packages here.'}
-          </p>
-          <p className="mt-1 max-w-sm text-xs leading-relaxed text-muted-foreground/80">
-            {query.trim()
-              ? 'Try a different tracking code, recipient, or destination.'
-              : 'Create a package or accept a transfer to see packages here.'}
-          </p>
-        </div>
-      ) : (
-        <div className="divide-y divide-border rounded-xl border border-border">
-          {filtered.map((item) => (
+        ) : filtered.length === 0 ? (
+          <div className="grid min-h-0 flex-1 place-items-center px-4 text-center">
+            <div>
+              <p className="text-sm font-medium text-muted-foreground">
+                {query.trim() ? `No packages match "${query}".` : 'No packages here.'}
+              </p>
+              <p className="mt-1 max-w-sm text-xs leading-relaxed text-muted-foreground/80">
+                {query.trim()
+                  ? 'Try a different tracking code, recipient, or destination.'
+                  : 'Create a package or accept a transfer to see packages here.'}
+              </p>
+            </div>
+          </div>
+        ) : (
+          <div className="min-h-0 flex-1 divide-y divide-border overflow-y-auto">
+            {filtered.map((item) => (
             <div
               key={item.id}
               role="button"
@@ -358,27 +340,62 @@ export function PackageWorkspace() {
               </div>
             </div>
           ))}
+          </div>
+        )}
+      </div>
 
-          {/* Infinite-scroll sentinel — appended after the last row. */}
-          {hasMorePackages ? (
-            <div ref={sentinelRef} className="grid place-items-center py-4 text-muted-foreground">
-              {loadingMore ? (
-                <div className="flex items-center gap-2 text-xs">
-                  <Loader2 className="size-4 animate-spin" /> Loading more…
-                </div>
-              ) : (
-                <p className="text-[10px] text-muted-foreground/70">Scroll for more</p>
+      {/* Pager */}
+      <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-card px-3 py-2">
+        <p className="min-w-0 truncate text-[11px] text-muted-foreground">
+          {totalCount > 0 ? `${filtered.length} of ${totalCount} package${totalCount === 1 ? '' : 's'}` : 'No packages'}
+          {totalPages > 1 && (
+            <>
+              {' '}· Page <span className="font-semibold text-foreground">{page + 1}</span> of {totalPages}
+            </>
+          )}
+        </p>
+        {totalPages > 1 && (
+          <div className="flex items-center gap-1.5">
+            <Button
+              size="sm"
+              variant="outline"
+              className="gap-1"
+              disabled={pageLoading || page === 0}
+              onClick={() => void workspace.goToPage(page - 1)}
+            >
+              <ChevronLeft className="size-3.5" /> Prev
+            </Button>
+            <div className="flex items-center gap-1">
+              {pageNumbers.map((entry, index) =>
+                entry === '…' ? (
+                  <span key={`gap-${index}`} className="px-1 text-xs text-muted-foreground">…</span>
+                ) : (
+                  <Button
+                    key={entry}
+                    size="sm"
+                    variant={entry === page + 1 ? 'default' : 'outline'}
+                    disabled={pageLoading}
+                    onClick={() => void workspace.goToPage(entry - 1)}
+                    className={cn('min-w-7 px-1 text-xs', entry === page + 1 && 'bg-[#1f2523] text-white hover:bg-[#343b37]')}
+                  >
+                    {entry}
+                  </Button>
+                ),
               )}
             </div>
-          ) : (
-            filtered.length > 0 && (
-              <p className="py-3 text-center text-[10px] text-muted-foreground/60">
-                All {workspace.packagesTotalCount} package{workspace.packagesTotalCount === 1 ? '' : 's'} loaded
-              </p>
-            )
-          )}
-        </div>
-      )}
+            <Button
+              size="sm"
+              variant="outline"
+              className="gap-1"
+              disabled={pageLoading || page >= totalPages - 1}
+              onClick={() => void workspace.goToPage(page + 1)}
+            >
+              Next <ChevronRight className="size-3.5" />
+            </Button>
+            {pageLoading && <Loader2 className="ml-1 size-3.5 animate-spin text-muted-foreground" />}
+          </div>
+        )}
+      </div>
 
       <PackageDetail item={selected} onClose={() => setSelectedId(null)} />
       <CreatePackageDialog open={createOpen} onClose={() => setCreateOpen(false)} />
