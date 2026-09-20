@@ -25,7 +25,12 @@ const PACKAGES_CACHE_TTL_MS = 15 * 60_000
 const SYNC_INTERVAL_MS = 60_000
 
 interface WorkspaceState {
-  loading: boolean
+  /** Packages list is loading (drives the primary board spinner). */
+  packagesLoading: boolean
+  /** Offers/transfers/drivers/office are loading (secondary board data). */
+  operationalLoading: boolean
+  /** Notice feed is loading. */
+  noticesLoading: boolean
   refreshing: boolean
   loadingMore: boolean
   error: string | null
@@ -102,7 +107,9 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
   const meId = user?.id ?? ''
 
   const [state, setState] = useState<WorkspaceState>({
-    loading: true,
+    packagesLoading: false,
+    operationalLoading: false,
+    noticesLoading: false,
     refreshing: false,
     loadingMore: false,
     error: null,
@@ -164,26 +171,20 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     [handleSessionExpired, patch],
   )
 
-  // Operational data: packages, offers, transfers, drivers.
-  // Refetches ALL loaded package pages (0..packagesPageRef) so periodic syncs
-  // and post-mutation refreshes keep the infinite-scrolled list intact.
-  const loadWorkspace = useCallback(async (): Promise<boolean> => {
+  // Packages — the PRIMARY board content. Refetches ALL loaded pages
+  // (0..packagesPageRef) so periodic syncs and post-mutation refreshes keep the
+  // infinite-scrolled list intact. It runs independently of the slower
+  // operational/notice fetches, so the list paints as soon as its own page
+  // lands even when the rest of the board is still loading.
+  const loadPackages = useCallback(async (): Promise<boolean> => {
     if (!token) return false
     try {
       const pageCount = packagesPageRef.current + 1
-      const [pkgResults, offersRes, pendingRes, requestedRes, mineRes, driversRes, meRes] = await Promise.all([
-        Promise.all(
-          Array.from({ length: pageCount }, (_, i) =>
-            api.fetchMyPackages(token, { page: i, size: PACKAGES_PAGE_SIZE }),
-          ),
+      const pkgResults = await Promise.all(
+        Array.from({ length: pageCount }, (_, i) =>
+          api.fetchMyPackages(token, { page: i, size: PACKAGES_PAGE_SIZE }),
         ),
-        api.fetchAvailablePackages(token),
-        api.fetchTransfersByStatus(token, 'PENDING'),
-        api.fetchTransfersByStatus(token, 'REQUESTED'),
-        api.fetchMyTransfers(token),
-        api.fetchDrivers(token),
-        api.fetchMyCompany(token),
-      ])
+      )
 
       // Merge pages newest-first (server order) and dedupe by id.
       const byId = new Map<string, DeliveryPackage>()
@@ -201,13 +202,6 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
         packagesTotalPages: last.totalPages,
         packagesTotalCount: last.totalCount,
         hasMorePackages: loadedPage < last.totalPages - 1,
-        offers: offersRes.availablePackages.items,
-        pendingTransfers: pendingRes.transfersByStatus,
-        requestedTransfers: requestedRes.transfersByStatus,
-        myTransfers: mineRes.myTransfers,
-        drivers: driversRes.searchUsers,
-        office: meRes?.office ?? null,
-        lastSync: Date.now(),
         error: null,
       })
       return true
@@ -215,6 +209,43 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
       return fail(error, true)
     }
   }, [token, meId, patch, fail])
+
+  // Operational board data: offers, transfers, drivers, office. Secondary to
+  // the packages list — failures are silent (the GraphQL subscriptions + 60 s
+  // sync heal it), so a hiccup in the custody board never banners over an
+  // otherwise healthy screen.
+  const loadOperational = useCallback(async (): Promise<boolean> => {
+    if (!token) return false
+    try {
+      const [offersRes, pendingRes, requestedRes, mineRes, driversRes, meRes] = await Promise.all([
+        api.fetchAvailablePackages(token),
+        api.fetchTransfersByStatus(token, 'PENDING'),
+        api.fetchTransfersByStatus(token, 'REQUESTED'),
+        api.fetchMyTransfers(token),
+        api.fetchDrivers(token),
+        api.fetchMyCompany(token),
+      ])
+      patch({
+        offers: offersRes.availablePackages.items,
+        pendingTransfers: pendingRes.transfersByStatus,
+        requestedTransfers: requestedRes.transfersByStatus,
+        myTransfers: mineRes.myTransfers,
+        drivers: driversRes.searchUsers,
+        office: meRes?.office ?? null,
+        lastSync: Date.now(),
+      })
+      return true
+    } catch (error) {
+      return fail(error, false)
+    }
+  }, [token, patch, fail])
+
+  // Combined reloader used by the background sync and the realtime events —
+  // packages + operational data, notices excluded (they have their own feed).
+  const loadWorkspace = useCallback(async (): Promise<boolean> => {
+    const results = await Promise.all([loadPackages(), loadOperational()])
+    return results.some(Boolean)
+  }, [loadPackages, loadOperational])
 
   // Infinite scroll: fetch the next package page and append it.
   const loadMorePackages = useCallback(async (): Promise<void> => {
@@ -345,7 +376,10 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     packagesTotalPagesRef.current = 1
   }, [status])
 
-  // Initial load + slow background sync for the operational board.
+  // Initial load + slow background sync for the operational board. Each section
+  // loads through its own flag and patches its own slice, so the packages list
+  // paints the instant its first page lands — no single slow endpoint (offers,
+  // transfers, office, notices) can hold back the primary content.
   useEffect(() => {
     if (status !== 'signedIn' || !token) return
     // Fresh session — restart pagination from page 0, unless cached pages were
@@ -354,14 +388,16 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
       packagesPageRef.current = 0
       packagesTotalPagesRef.current = 1
     }
-    patch({ loading: true })
-    void loadAll().finally(() => patch({ loading: false }))
+    patch({ packagesLoading: true, operationalLoading: true, noticesLoading: true })
+    void loadPackages().finally(() => patch({ packagesLoading: false }))
+    void loadOperational().finally(() => patch({ operationalLoading: false }))
+    void loadNotices().finally(() => patch({ noticesLoading: false }))
     const interval = window.setInterval(() => {
       if (document.hidden) return
       void loadWorkspace()
     }, SYNC_INTERVAL_MS)
     return () => window.clearInterval(interval)
-  }, [status, token, loadWorkspace, patch])
+  }, [status, token, loadPackages, loadOperational, loadNotices, loadWorkspace, patch])
 
   // GraphQL subscription — instant cue + refresh for newly created package+transfer events.
   // Reconnects with bounded backoff when the WebSocket drops.
@@ -493,7 +529,10 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     async <T,>(fn: () => Promise<T>): Promise<T> => {
       try {
         const result = await fn()
-        await loadAll()
+        // Refresh the board in the background — the caller has already awaited
+        // the mutation itself, so a slow full reload must not hold up the
+        // optimistic state patches (rows vanishing from the inbox, badges, etc).
+        void loadAll()
         return result
       } catch (error) {
         if (isAuthError(error)) {

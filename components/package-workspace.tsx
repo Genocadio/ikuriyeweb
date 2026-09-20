@@ -251,7 +251,7 @@ export function PackageWorkspace() {
       </div>
 
       {/* Package list */}
-      {workspace.loading && workspace.packages.length === 0 ? (
+      {workspace.packagesLoading && workspace.packages.length === 0 ? (
         <div className="grid place-items-center rounded-2xl border border-dashed border-border py-20 text-muted-foreground">
           <div className="flex flex-col items-center gap-3">
             <Loader2 className="size-6 animate-spin" />
