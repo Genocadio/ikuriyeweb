@@ -28,6 +28,13 @@ export interface CompanyOffice {
   address: string | null
   city: string | null
   phone: string | null
+  /** Stable office-location UUID shared with ikuriyebackend. */
+  officeLocationId: string | null
+  latitude: number | null
+  longitude: number | null
+  googlePlaceName: string | null
+  customName: string | null
+  placeId: string | null
 }
 
 export interface MyCompany {

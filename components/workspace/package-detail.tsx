@@ -44,13 +44,13 @@ const ACTION_LABEL: Record<PackageAction['kind'], string> = {
   'reject-request': 'Reject request',
   'regenerate-transfer-code': 'Regenerate transfer code',
   'cancel-transfer': 'Cancel transfer',
-  'create-transfer': 'Create transfer',
+  'create-transfer': 'Transfer to driver',
   'assign-driver': 'Assign driver',
   'mark-in-transit': 'Mark in transit',
   'arrive-destination': 'Arrived at destination office',
   'ready-for-collection': 'Ready for collection',
-  'start-delivery': 'Start delivery',
-  'confirm-delivery': 'Confirm delivery',
+  'start-delivery': 'Deliver',
+  'confirm-delivery': 'Enter delivery code',
   'regenerate-delivery-code': 'Regenerate delivery code',
   'cancel-package': 'Cancel package',
 }
@@ -314,6 +314,18 @@ export function PackageDetail({ item, onClose }: { item: PackageItem | null; onC
                 {t.creatorId === meId ? 'You created this transfer.' : 'Created by another custodian.'}{' '}
                 Accepts: {ACCEPTOR_LABEL[t.acceptorType] ?? t.acceptorType}.
               </p>
+              {t.status === 'PENDING' && t.creatorId === meId && (
+                <p className="mt-2 flex items-center gap-1.5 text-xs text-amber-700">
+                  <Truck className="size-3.5" />
+                  Transferred to the driver — waiting for them to accept the handover.
+                </p>
+              )}
+              {t.status === 'REQUESTED' && t.creatorId === meId && (
+                <p className="mt-2 flex items-center gap-1.5 text-xs text-violet-700">
+                  <KeyRound className="size-3.5" />
+                  The driver requested this transfer — approve it to continue.
+                </p>
+              )}
               {t.ruleType === 'SECURE' && t.creatorId === meId && (
                 <p className="mt-2 flex items-center gap-1.5 text-xs text-amber-700">
                   <KeyRound className="size-3.5" />
@@ -403,11 +415,11 @@ export function PackageDetail({ item, onClose }: { item: PackageItem | null; onC
                   )}
                   onClick={() => void runAction(action)}
                 >
-                  {ACTION_LABEL[action.kind] === 'Create transfer' && <Truck className="size-3.5" />}
-                  {ACTION_LABEL[action.kind] === 'Assign driver' && <Truck className="size-3.5" />}
-                  {ACTION_LABEL[action.kind] === 'Start delivery' && <Send className="size-3.5" />}
-                  {ACTION_LABEL[action.kind] === 'Claim package' && <PackageCheck className="size-3.5" />}
-                  {ACTION_LABEL[action.kind] === 'Accept custody' && <Check className="size-3.5" />}
+                  {action.kind === 'create-transfer' && <Truck className="size-3.5" />}
+                  {action.kind === 'assign-driver' && <Truck className="size-3.5" />}
+                  {action.kind === 'start-delivery' && <Send className="size-3.5" />}
+                  {action.kind === 'claim' && <PackageCheck className="size-3.5" />}
+                  {action.kind === 'accept-transfer' && <Check className="size-3.5" />}
                   {ACTION_LABEL[action.kind]}
                 </Button>
               ))}

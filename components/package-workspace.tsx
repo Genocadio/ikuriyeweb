@@ -1,19 +1,21 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Box, Loader2, PackageCheck, Plus, Search } from 'lucide-react'
+import { Loader2, PackageCheck, Send, Plus, Search, Truck, KeyRound } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { useAuth } from '@/lib/auth'
 import { useWorkspace } from '@/lib/store'
-import { statusClass, statusLabel } from '@/lib/status'
+import { statusClass, statusLabel, TRANSFER_RULE_LABEL } from '@/lib/status'
 import { timeAgo } from '@/lib/format'
-import type { PackageItem, PackageStatus } from '@/lib/types'
+import type { PackageItem } from '@/lib/types'
 import { cn } from '@/lib/utils'
 import { CustodyInbox } from '@/components/workspace/inbox'
 import { PackageDetail } from '@/components/workspace/package-detail'
 import { CreatePackageDialog } from '@/components/workspace/create-package-dialog'
+import { CodePromptDialog, CodeRevealDialog, ConfirmDialog } from '@/components/workspace/dialogs'
+import { DriverPickerDialog } from '@/components/workspace/driver-picker-dialog'
 
 type FilterKey = 'all' | 'at-office' | 'in-transit' | 'delivered' | 'other'
 
@@ -144,6 +146,56 @@ export function PackageWorkspace() {
 
   const selected = workspace.packages.find((item) => item.id === selectedId) ?? null
 
+  // Quick actions rendered inline on list rows (the same flows live in the
+  // detail drawer).
+  const [deliverItem, setDeliverItem] = useState<PackageItem | null>(null)
+  const [confirmItem, setConfirmItem] = useState<PackageItem | null>(null)
+  const [reveal, setReveal] = useState<{ code: string } | null>(null)
+  const [transferItemId, setTransferItemId] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+
+  // Packages that arrived at this office (as their destination) are handed to
+  // the receiver from here — one-tap "Deliver".
+  const officeDeliver = (item: PackageItem) =>
+    ['DESTINATION_OFFICE', 'READY_FOR_COLLECTION'].includes(item.status)
+  const awaitingConfirm = (item: PackageItem) => item.status === 'PENDING_CONFIRMATION'
+  // Packages I hold that were created here (origin = this office) go out via a
+  // driver — regardless of destination. Offer the handover until one is open.
+  const canTransfer = (item: PackageItem) =>
+    item.isMine && ['CREATED', 'ORIGIN_OFFICE', 'ACCEPTED'].includes(item.status) && !item.openTransfer
+
+  async function runQuickDeliver() {
+    if (!deliverItem) return
+    setBusy(true)
+    try {
+      const deliveryCode = await workspace.initiateDelivery(deliverItem.id)
+      setDeliverItem(null)
+      setReveal({ code: deliveryCode })
+    } catch {
+      /* error toasted by the store */
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function runQuickConfirm(code: string) {
+    if (!confirmItem) return
+    setBusy(true)
+    try {
+      await workspace.confirmDelivery(confirmItem.id, code)
+      setConfirmItem(null)
+    } catch {
+      /* error toasted by the store */
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function runQuickTransfer(driverId: string) {
+    if (!transferItemId) return
+    await workspace.createTransferForPackages([transferItemId], 'AUTO', driverId)
+  }
+
   // Compute badge counts for each tab
   const counts = useMemo(() => {
     const c: Record<FilterKey, number> = { all: 0, 'at-office': 0, 'in-transit': 0, delivered: 0, other: 0 }
@@ -220,10 +272,18 @@ export function PackageWorkspace() {
       ) : (
         <div className="divide-y divide-border rounded-xl border border-border">
           {filtered.map((item) => (
-            <button
+            <div
               key={item.id}
+              role="button"
+              tabIndex={0}
               onClick={() => setSelectedId(item.id)}
-              className="group flex w-full items-center gap-3 px-4 py-3.5 text-left transition-colors hover:bg-muted/40 sm:gap-4 sm:px-5"
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                  event.preventDefault()
+                  setSelectedId(item.id)
+                }
+              }}
+              className="group flex w-full cursor-pointer items-start gap-3 px-4 py-3.5 text-left transition-colors hover:bg-muted/40 sm:items-center sm:gap-4 sm:px-5"
             >
               <div className="grid size-9 shrink-0 place-items-center rounded-lg bg-muted text-muted-foreground">
                 <PackageCheck className="size-4" />
@@ -234,6 +294,11 @@ export function PackageWorkspace() {
                   <Badge variant="outline" className={cn('text-[10px]', statusClass(item.status))}>
                     {statusLabel(item.status)}
                   </Badge>
+                  {item.openTransfer && item.isMine && (
+                    <Badge variant="outline" className="border-violet-200 bg-violet-50 text-[9px] text-violet-700">
+                      Awaiting driver
+                    </Badge>
+                  )}
                   {item.fragile && (
                     <Badge variant="outline" className="border-amber-200 bg-amber-50 px-1.5 py-0 text-[9px] text-amber-700">
                       Fragile
@@ -246,13 +311,52 @@ export function PackageWorkspace() {
                 <p className="mt-0.5 truncate text-[10px] text-muted-foreground">
                   {item.currentCustodian ? `${item.currentCustodian.name} (${item.currentCustodian.role})` : 'No custodian'}
                   {item.assignedDriver && item.currentCustodian?.role !== 'DRIVER' ? ` · Driver: ${item.assignedDriver}` : ''}
+                  {item.openTransfer && item.isMine ? ` · ${TRANSFER_RULE_LABEL[item.openTransfer.ruleType] ?? ''} transfer open — waiting for the driver to accept` : ''}
                 </p>
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  {canTransfer(item) && (
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        setTransferItemId(item.id)
+                      }}
+                      className="flex items-center gap-1.5 rounded-lg border border-border bg-muted/40 px-2.5 py-1 text-[10px] font-medium text-muted-foreground transition-colors hover:bg-muted"
+                    >
+                      <Truck className="size-3" /> Transfer to driver
+                    </button>
+                  )}
+                  {officeDeliver(item) && (
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        setDeliverItem(item)
+                      }}
+                      className="flex items-center gap-1.5 rounded-lg bg-[#f07c42] px-2.5 py-1 text-[10px] font-semibold text-white transition-colors hover:bg-[#e3743e]"
+                    >
+                      <Send className="size-3" /> Deliver
+                    </button>
+                  )}
+                  {awaitingConfirm(item) && (
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        setConfirmItem(item)
+                      }}
+                      className="flex items-center gap-1.5 rounded-lg bg-[#1f2523] px-2.5 py-1 text-[10px] font-semibold text-white transition-colors hover:bg-[#343b37]"
+                    >
+                      <KeyRound className="size-3" /> Enter delivery code
+                    </button>
+                  )}
+                </div>
               </div>
               <div className="hidden shrink-0 text-right sm:block">
                 <p className="font-mono text-[10px] text-muted-foreground">{timeAgo(item.updatedAt)}</p>
                 {item.weight && <p className="mt-1 text-[10px] text-muted-foreground">{item.weight}</p>}
               </div>
-            </button>
+            </div>
           ))}
 
           {/* Infinite-scroll sentinel — appended after the last row. */}
@@ -278,6 +382,43 @@ export function PackageWorkspace() {
 
       <PackageDetail item={selected} onClose={() => setSelectedId(null)} />
       <CreatePackageDialog open={createOpen} onClose={() => setCreateOpen(false)} />
+
+      {/* Quick-row actions — the same flows as the detail drawer */}
+      <ConfirmDialog
+        open={Boolean(deliverItem)}
+        title={`Deliver ${deliverItem?.trackingCode ?? ''}?`}
+        description="Initiates delivery to the receiver and generates a one-time 6-digit confirmation code. The package moves to “awaiting confirmation”."
+        confirmLabel="Deliver"
+        busy={busy}
+        onConfirm={() => void runQuickDeliver()}
+        onClose={() => setDeliverItem(null)}
+      />
+      <CodePromptDialog
+        key={confirmItem ? `confirm-${confirmItem.id}` : 'none'}
+        open={Boolean(confirmItem)}
+        title={`Enter delivery code for ${confirmItem?.trackingCode ?? ''}`}
+        description="The receiver should share the delivery code if they have not yet confirmed in their app."
+        placeholder="000000"
+        confirmLabel="Confirm delivery"
+        initialValue={confirmItem ? (workspace.getCode(confirmItem.id) ?? '') : ''}
+        busy={busy}
+        onConfirm={(code) => void runQuickConfirm(code)}
+        onClose={() => setConfirmItem(null)}
+      />
+      <CodeRevealDialog
+        open={Boolean(reveal)}
+        title="Delivery code"
+        description="Share this code with the receiver — they use it to confirm the delivery."
+        code={reveal?.code ?? null}
+        onClose={() => setReveal(null)}
+      />
+      <DriverPickerDialog
+        open={Boolean(transferItemId)}
+        title="Transfer to a driver"
+        description="A transfer will be created for the selected driver to pick up the package."
+        onConfirm={(driverId) => runQuickTransfer(driverId)}
+        onClose={() => setTransferItemId(null)}
+      />
     </div>
   )
 }

@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useRef, useEffect, useCallback } from 'react'
-import { Loader2, PackagePlus, UserRound, X, MapPin } from 'lucide-react'
+import { Loader2, PackagePlus, UserRound, X, MapPin, Building2, Lock } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -13,7 +13,7 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { useWorkspace } from '@/lib/store'
-import type { DeliveryType, TransferRuleType } from '@/lib/types'
+import type { CompanyOffice, DeliveryType, TransferRuleType } from '@/lib/types'
 import { cn } from '@/lib/utils'
 import { searchLocations } from '@/lib/api'
 import type { TripLocation } from '@/lib/api'
@@ -33,6 +33,16 @@ function num(value: string): number {
 }// Location display name: prefer custom_name, fall back to google_place_name, then code
 function locationDisplayName(loc: TripLocation): string {
   return loc.custom_name || loc.google_place_name || loc.code || `Location #${loc.id}`
+}
+
+// The origin is locked to the worker's assigned office — display its location name.
+function officeLocationName(office: CompanyOffice | null): string {
+  if (!office) return ''
+  return office.customName || office.googlePlaceName || office.name || office.address || office.city || ''
+}
+
+function officeBaseName(office: CompanyOffice | null): string {
+  return office?.name || office?.companyName || ''
 }
 
 function LocationSuggestionInput({
@@ -145,11 +155,15 @@ export function CreatePackageDialog({ open, onClose }: { open: boolean; onClose:
   const [senderPhone, setSenderPhone] = useState('')
   const [receiverName, setReceiverName] = useState('')
   const [receiverPhone, setReceiverPhone] = useState('')
-  const [originName, setOriginName] = useState('')
-  const [originCoords, setOriginCoords] = useState<[number, number]>([0, 0])
+  // The origin is not pickable — it is always the worker's assigned office.
+  const office = workspace.office
+  const originName = officeLocationName(office)
+  const originCoords: [number, number] =
+    office?.latitude != null && office?.longitude != null ? [office.latitude, office.longitude] : [0, 0]
+  const originPlaceId = office?.placeId ?? null
+  const originOfficeLocationId = office?.officeLocationId ?? null
   const [destName, setDestName] = useState('')
   const [destCoords, setDestCoords] = useState<[number, number]>([0, 0])
-  const [originPlaceId, setOriginPlaceId] = useState<string | null>(null)
   const [destPlaceId, setDestPlaceId] = useState<string | null>(null)
   const [weight, setWeight] = useState('')
   const [category, setCategory] = useState('')
@@ -158,17 +172,17 @@ export function CreatePackageDialog({ open, onClose }: { open: boolean; onClose:
 
   const [reveal, setReveal] = useState<{ code: string | null } | null>(null)
 
-  const valid = Boolean(senderName.trim() && receiverName.trim() && originName.trim() && destName.trim())
+  const valid = Boolean(office && senderName.trim() && receiverName.trim() && destName.trim())
 
   async function submit() {
-    if (!valid || busy) return
+    if (!valid || busy || !office) return
     setBusy(true)
     try {
       const result = await createPackage({
         deliveryType,
         sender: { role: 'SENDER', name: senderName.trim(), phone: senderPhone.trim() || null },
         receiver: { role: 'RECEIVER', name: receiverName.trim(), phone: receiverPhone.trim() || null },
-        origin: { type: 'ORIGIN', latitude: originCoords[0], longitude: originCoords[1], placeName: originName.trim(), placeId: originPlaceId },
+        origin: { type: 'ORIGIN', latitude: originCoords[0], longitude: originCoords[1], placeName: originName.trim(), placeId: originPlaceId, officeLocationId: originOfficeLocationId },
         destination: { type: 'DESTINATION', latitude: destCoords[0], longitude: destCoords[1], placeName: destName.trim(), placeId: destPlaceId },
         details: {
           weight: weight ? num(weight) : null,
@@ -221,16 +235,23 @@ export function CreatePackageDialog({ open, onClose }: { open: boolean; onClose:
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="flex flex-col gap-2">
                 <p className="text-xs font-medium text-muted-foreground">Origin</p>
-                <LocationSuggestionInput
-                  value={originName}
-                  onChange={setOriginName}
-                  onLocationSelect={(loc) => {
-                    setOriginCoords([loc.latitude, loc.longitude])
-                    setOriginPlaceId(loc.place_id ?? null)
-                  }}
-                  placeholder="Pickup location"
-                  icon={<MapPin className="size-3.5" />}
-                />
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">
+                    <Building2 className="size-3.5" />
+                  </span>
+                  <Input
+                    value={office ? officeLocationName(office) : 'Loading office…'}
+                    readOnly
+                    disabled={!office}
+                    className="pl-9 text-xs"
+                  />
+                </div>
+                {office && (
+                  <p className="flex items-center gap-1 text-[10px] text-muted-foreground">
+                    <Lock className="size-3 shrink-0" />
+                    {officeBaseName(office)} — your assigned office is always the pickup location
+                  </p>
+                )}
               </div>
               <div className="flex flex-col gap-2">
                 <p className="text-xs font-medium text-muted-foreground">Destination</p>

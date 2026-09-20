@@ -101,7 +101,10 @@ export function actionsForPackage(item: PackageItem, meId: string): PackageActio
 
   if (item.status === 'CREATED') {
     const t = item.openTransfer
-    if (!t) return isMine ? [{ kind: 'create-transfer' }] : [] // no open transfer → worker can create one to send to drivers
+    if (!t) {
+      // No open transfer → hand the package to a driver, or assign one directly.
+      return isMine ? [{ kind: 'create-transfer' }, { kind: 'assign-driver' }] : []
+    }
     if (t.creatorId === meId) {
       if (t.status === 'REQUESTED') {
         return t.requestorId ? [{ kind: 'approve-request' }, { kind: 'reject-request' }] : []
@@ -128,10 +131,14 @@ export function actionsForPackage(item: PackageItem, meId: string): PackageActio
       return item.openTransfer
         ? [{ kind: 'assign-driver' }, { kind: 'cancel-package' }]
         : [{ kind: 'create-transfer' }, { kind: 'assign-driver' }, { kind: 'cancel-package' }]
-    case 'ACCEPTED':
-      return item.deliveryType === 'OPEN'
-        ? [{ kind: 'assign-driver' }, { kind: 'start-delivery' }, { kind: 'cancel-package' }]
-        : [{ kind: 'assign-driver' }, { kind: 'cancel-package' }]
+    case 'ACCEPTED': {
+      const handoff: PackageAction[] = []
+      if (!item.openTransfer) handoff.push({ kind: 'create-transfer' })
+      handoff.push({ kind: 'assign-driver' })
+      if (item.deliveryType === 'OPEN') handoff.push({ kind: 'start-delivery' })
+      handoff.push({ kind: 'cancel-package' })
+      return handoff
+    }
     case 'ASSIGNED_DRIVER':
       return [{ kind: 'mark-in-transit' }, { kind: 'cancel-package' }]
     case 'PICKED_UP':

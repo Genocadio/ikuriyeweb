@@ -110,6 +110,40 @@ export async function searchLocations(query: string, limit = 20): Promise<TripLo
 // Company access / onboarding (cavgomain REST via the gateway's /main namespace)
 // ─────────────────────────────────────────────────────────────────────────────
 
+interface RawCompanyOffice {
+  id?: number | string | null
+  name?: string | null
+  companyName?: string | null
+  address?: string | null
+  city?: string | null
+  phone?: string | null
+  officeLocationId?: string | null
+  latitude?: number | null
+  longitude?: number | null
+  googlePlaceName?: string | null
+  customName?: string | null
+  placeId?: string | null
+}
+
+function toCompanyOffice(raw: RawCompanyOffice | null | undefined): CompanyOffice | null {
+  if (!raw) return null
+  return {
+    id: String(raw.id),
+    name: raw.name ?? null,
+    companyName: raw.companyName ?? null,
+    address: raw.address ?? null,
+    city: raw.city ?? null,
+    phone: raw.phone ?? null,
+    officeLocationId:
+      raw.officeLocationId != null ? String(raw.officeLocationId) : null,
+    latitude: raw.latitude ?? null,
+    longitude: raw.longitude ?? null,
+    googlePlaceName: raw.googlePlaceName ?? null,
+    customName: raw.customName ?? null,
+    placeId: raw.placeId ?? null,
+  }
+}
+
 function toMyCompany(raw: {
   id?: number | string
   companyId?: number | string | null
@@ -119,14 +153,7 @@ function toMyCompany(raw: {
   lastName?: string | null
   email?: string | null
   phone?: string | null
-  office?: {
-    id?: number | string | null
-    name?: string | null
-    companyName?: string | null
-    address?: string | null
-    city?: string | null
-    phone?: string | null
-  } | null
+  office?: RawCompanyOffice | null
 } | null): MyCompany | null {
   if (!raw) return null
   return {
@@ -138,16 +165,7 @@ function toMyCompany(raw: {
     lastName: raw.lastName ?? null,
     email: raw.email ?? null,
     phone: raw.phone ?? null,
-    office: raw.office
-      ? {
-          id: String(raw.office.id),
-          name: raw.office.name ?? null,
-          companyName: raw.office.companyName ?? null,
-          address: raw.office.address ?? null,
-          city: raw.office.city ?? null,
-          phone: raw.office.phone ?? null,
-        }
-      : null,
+    office: toCompanyOffice(raw.office),
   }
 }
 
@@ -162,7 +180,7 @@ export function fetchMyCompany(token: string): Promise<MyCompany | null> {
     lastName?: string | null
     email?: string | null
     phone?: string | null
-    office?: { id?: number | string | null; name?: string | null; companyName?: string | null; address?: string | null; city?: string | null; phone?: string | null } | null
+    office?: RawCompanyOffice | null
   }>('/main/staff/me', { token }).then((res) => toMyCompany(res.data))
 }
 
@@ -241,23 +259,8 @@ export function fetchCompanyByCode(token: string, code: string): Promise<Company
 
 /** Offices of a company — for the "pick your office" step after approval. */
 export function fetchOffices(token: string, companyId: string): Promise<CompanyOffice[]> {
-  return rest<{
-    id?: number | string
-    name?: string | null
-    companyName?: string | null
-    address?: string | null
-    city?: string | null
-    phone?: string | null
-  }[]>(`/main/offices?companyId=${encodeURIComponent(companyId)}`, { token }).then((res) =>
-    (res.data ?? []).map((o) => ({
-      id: String(o.id),
-      name: o.name ?? null,
-      companyName: o.companyName ?? null,
-      address: o.address ?? null,
-      city: o.city ?? null,
-      phone: o.phone ?? null,
-    })),
-  )
+  return rest<RawCompanyOffice[]>(`/main/offices?companyId=${encodeURIComponent(companyId)}`, { token })
+    .then((res) => (res.data ?? []).map((o) => toCompanyOffice(o)).filter((o): o is CompanyOffice => o != null))
 }
 
 /** Self-service office assignment (worker picks their office after approval). */
@@ -271,7 +274,7 @@ export function assignMyOffice(token: string, userId: string, officeId: string):
     lastName?: string | null
     email?: string | null
     phone?: string | null
-    office?: { id?: number | string | null; name?: string | null; companyName?: string | null; address?: string | null; city?: string | null; phone?: string | null } | null
+    office?: RawCompanyOffice | null
   }>(`/main/staff/${encodeURIComponent(userId)}/office/${encodeURIComponent(officeId)}`, {
     token,
     method: 'PUT',
@@ -422,8 +425,8 @@ export interface CreatePackageInput {
   deliveryType: 'OPEN' | 'FIXED_ROUTE'
   sender?: { role: 'SENDER'; userId?: string | null; name?: string | null; phone?: string | null }
   receiver: { role: 'RECEIVER'; userId?: string | null; name?: string | null; phone?: string | null }
-  origin: { type: 'ORIGIN'; latitude: number; longitude: number; placeName?: string | null; placeId?: string | null }
-  destination: { type: 'DESTINATION'; latitude: number; longitude: number; placeName?: string | null; placeId?: string | null }
+  origin: { type: 'ORIGIN'; latitude: number; longitude: number; placeName?: string | null; placeId?: string | null; officeLocationId?: string | null }
+  destination: { type: 'DESTINATION'; latitude: number; longitude: number; placeName?: string | null; placeId?: string | null; officeLocationId?: string | null }
   details?: {
     category?: string | null
     description?: string | null

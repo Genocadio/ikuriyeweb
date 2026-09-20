@@ -6,7 +6,7 @@ import { isAuthError } from './client'
 import * as api from './api'
 import { subscribeGraphql } from './realtime'
 import { useAuth } from './auth'
-import type { DeliveryPackage, Notice, PackageItem, PackageStatus, Transfer, TransferRuleType, User } from './types'
+import type { CompanyOffice, DeliveryPackage, Notice, PackageItem, PackageStatus, Transfer, TransferRuleType, User } from './types'
 import { toPackageItem } from './api'
 
 const CODES_KEY = 'cavgo.deliveryCodes'
@@ -44,6 +44,8 @@ interface WorkspaceState {
   drivers: User[]
   codes: Record<string, string>
   secureCodes: Record<string, string>
+  /** The worker's currently assigned working office (drives the locked package origin). */
+  office: CompanyOffice | null
 }
 
 interface WorkspaceActions {
@@ -119,6 +121,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     drivers: [],
     codes: readRecord(CODES_KEY),
     secureCodes: readRecord(SECURE_KEY),
+    office: null,
   })
   const mounted = useRef(true)
   // Pagination cursors for the workspace package list (mirrored in state for
@@ -168,7 +171,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     if (!token) return false
     try {
       const pageCount = packagesPageRef.current + 1
-      const [pkgResults, offersRes, pendingRes, requestedRes, mineRes, driversRes] = await Promise.all([
+      const [pkgResults, offersRes, pendingRes, requestedRes, mineRes, driversRes, meRes] = await Promise.all([
         Promise.all(
           Array.from({ length: pageCount }, (_, i) =>
             api.fetchMyPackages(token, { page: i, size: PACKAGES_PAGE_SIZE }),
@@ -179,6 +182,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
         api.fetchTransfersByStatus(token, 'REQUESTED'),
         api.fetchMyTransfers(token),
         api.fetchDrivers(token),
+        api.fetchMyCompany(token),
       ])
 
       // Merge pages newest-first (server order) and dedupe by id.
@@ -202,6 +206,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
         requestedTransfers: requestedRes.transfersByStatus,
         myTransfers: mineRes.myTransfers,
         drivers: driversRes.searchUsers,
+        office: meRes?.office ?? null,
         lastSync: Date.now(),
         error: null,
       })

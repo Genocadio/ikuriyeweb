@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { Check, Copy, Inbox, KeyRound, Loader2, X } from 'lucide-react'
+import { Check, Inbox, KeyRound, Loader2, X } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { useAuth } from '@/lib/auth'
@@ -21,7 +21,7 @@ import { toPackageItem } from '@/lib/api'
 import { CodePromptDialog, CodeRevealDialog, ConfirmDialog } from './dialogs'
 import { PackageDetail } from './package-detail'
 
-type Tab = 'transfers' | 'offers' | 'mine'
+type Tab = 'transfers' | 'offers'
 
 /**
  * Minimal placeholder used to open the detail drawer for a package we only
@@ -64,7 +64,6 @@ export function CustodyInbox() {
   const [busyId, setBusyId] = useState<string | null>(null)
   const [confirm, setConfirm] = useState<{ title: string; description?: string; label?: string; run: () => Promise<void> } | null>(null)
   const [codePrompt, setCodePrompt] = useState<{ transfer: Transfer; title: string; description?: string } | null>(null)
-  const [reveal, setReveal] = useState<{ title: string; description?: string; code: string } | null>(null)
   const [viewOffer, setViewOffer] = useState<DeliveryPackage | null>(null)
   const [viewTransferPackages, setViewTransferPackages] = useState<Transfer | null>(null)
   const [viewTransferPackage, setViewTransferPackage] = useState<PackageItem | null>(null)
@@ -196,12 +195,6 @@ export function CustodyInbox() {
               >
                 New offers <span className="ml-1">{offerCount}</span>
               </button>
-              <button
-                onClick={() => setTab('mine')}
-                className={cn('flex-1 rounded-lg px-2 py-2 text-[11px] font-semibold', tab === 'mine' ? 'bg-card shadow-sm' : 'text-muted-foreground')}
-              >
-                My transfers <span className="ml-1">{workspace.myTransfers.length}</span>
-              </button>
             </div>
 
             <div className="max-h-[26rem] overflow-y-auto pt-3">
@@ -330,75 +323,6 @@ export function CustodyInbox() {
                   )}
                 </div>
               )}
-
-              {tab === 'mine' && (
-                <div className="flex flex-col gap-2">
-                  {workspace.myTransfers.length === 0 ? (
-                    <p className="px-2 py-6 text-center text-xs text-muted-foreground">You have not created any transfers yet.</p>
-                  ) : (
-                    workspace.myTransfers.map((transfer) => (
-                      <div key={transfer.id} className="rounded-xl border border-border p-3">
-                        <TransferHeader transfer={transfer} />
-                        {transfer.packages.length > 0 && (
-                          <div className="mt-3">
-                            {transfer.packages.length === 1 ? (
-                              <Button variant="outline" size="sm" className="w-full" onClick={() => openPackageById(transfer.packages[0]?.packageId)}>
-                                View details
-                              </Button>
-                            ) : (
-                              <Button variant="outline" size="sm" className="w-full" onClick={() => setViewTransferPackages(transfer)}>
-                                View packages
-                              </Button>
-                            )}
-                          </div>
-                        )}
-                        {transfer.ruleType === 'SECURE' && transfer.status === 'PENDING' && (
-                          <div className="mt-2 flex items-center gap-2 text-xs text-amber-700">
-                            <KeyRound className="size-3.5" />
-                            {workspace.getSecureCode(transfer.id) ? (
-                              <span className="flex items-center gap-1.5 font-mono tracking-widest">
-                                {workspace.getSecureCode(transfer.id)}
-                                <CopyCode code={workspace.getSecureCode(transfer.id)!} />
-                              </span>
-                            ) : (
-                              <span>Code hidden — regenerate to view it.</span>
-                            )}
-                          </div>
-                        )}
-                        <div className="mt-3 flex flex-wrap gap-2">
-                          {transfer.status === 'PENDING' && (
-                            <>
-                              <Button size="sm" variant="outline" className="text-destructive" disabled={busyId === transfer.id} onClick={() => setConfirm({ title: 'Cancel this transfer?', run: () => workspace.cancelTransfer(transfer.id) })}>
-                                Cancel
-                              </Button>
-                              {transfer.ruleType === 'SECURE' && (
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  disabled={busyId === transfer.id}
-                                  onClick={() => void workspace.regenerateTransferCode(transfer.id).then((code) => setReveal({ title: 'New transfer code', description: 'The previous code is now invalid.', code }))}
-                                >
-                                  Regenerate code
-                                </Button>
-                              )}
-                            </>
-                          )}
-                          {transfer.status === 'REQUESTED' && (
-                            <>
-                              <Button size="sm" className="gap-1.5 bg-[#1f2523] text-white hover:bg-[#343b37]" disabled={busyId === transfer.id} onClick={() => setConfirm({ title: 'Approve transfer request?', description: 'The requestor becomes custodian of the packages.', run: () => workspace.confirmTransfer(transfer.id) })}>
-                                <Check className="size-3.5" /> Approve
-                              </Button>
-                              <Button size="sm" variant="outline" className="text-destructive" disabled={busyId === transfer.id} onClick={() => setConfirm({ title: 'Reject transfer request?', description: 'The transfer returns to open.', run: () => workspace.rejectTransfer(transfer.id) })}>
-                                Reject
-                              </Button>
-                            </>
-                          )}
-                        </div>
-                      </div>
-                    ))
-                  )}
-                </div>
-              )}
             </div>
           </div>
         )}
@@ -424,13 +348,6 @@ export function CustodyInbox() {
           if (codePrompt) void acceptSecure(codePrompt.transfer, code)
         }}
         onClose={() => setCodePrompt(null)}
-      />
-      <CodeRevealDialog
-        open={Boolean(reveal)}
-        title={reveal?.title ?? ''}
-        description={reveal?.description}
-        code={reveal?.code ?? null}
-        onClose={() => setReveal(null)}
       />
       <PackageDetail item={viewOffer ? toPackageItem(viewOffer, meId) : null} onClose={() => setViewOffer(null)} />
       <PackageDetail item={viewTransferPackage} onClose={() => setViewTransferPackage(null)} />
@@ -518,22 +435,5 @@ function TransferHeader({ transfer }: { transfer: Transfer }) {
         <Badge variant="outline" className="font-mono text-[9px] text-muted-foreground">{TRANSFER_STATUS_LABEL[transfer.status]}</Badge>
       </div>
     </div>
-  )
-}
-
-function CopyCode({ code }: { code: string }) {
-  const [copied, setCopied] = useState(false)
-  return (
-    <button
-      aria-label="Copy transfer code"
-      onClick={() => {
-        void navigator.clipboard?.writeText(code)
-        setCopied(true)
-        window.setTimeout(() => setCopied(false), 1500)
-      }}
-      className="grid size-5 place-items-center rounded-md text-muted-foreground hover:bg-muted"
-    >
-      {copied ? <Check className="size-3 text-emerald-600" /> : <Copy className="size-3" />}
-    </button>
   )
 }
