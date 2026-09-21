@@ -170,18 +170,85 @@ function toMyCompany(raw: {
 }
 
 /** The authenticated user's company membership, or null when not a member. */
+function toMyCompanyFromSync(raw: RawSyncResponse | null): MyCompany | null {
+  if (!raw?.company) return null
+  const user = raw.user ?? {}
+  return toMyCompany({
+    id: user.id,
+    companyId: raw.company.companyId,
+    companyName: raw.company.companyName,
+    role: user.role,
+    firstName: user.firstName,
+    lastName: user.lastName,
+    email: user.email,
+    phone: user.phone,
+    office: raw.company.office,
+  })
+}
+
+interface RawSyncUser {
+  id?: number | string
+  firstName?: string | null
+  lastName?: string | null
+  email?: string | null
+  phone?: string | null
+  role?: string | null
+  status?: string | null
+}
+
+interface RawSyncCompany {
+  companyId?: number | string | null
+  companyName?: string | null
+  companyCode?: string | null
+  email?: string | null
+  phone?: string | null
+  address?: string | null
+  city?: string | null
+  office?: RawCompanyOffice | null
+}
+
+interface RawSyncAccessRequest {
+  id?: number | string
+  status?: string | null
+  rejectionReason?: string | null
+  companyCode?: string | null
+  companyId?: number | string | null
+  companyName?: string | null
+}
+
+interface RawSyncResponse {
+  user?: RawSyncUser | null
+  company?: RawSyncCompany | null
+  accessRequest?: RawSyncAccessRequest | null
+}
+
+export interface SyncProfile {
+  company: MyCompany | null
+  accessRequest: CompanyAccessRequestStatus | null
+}
+
+/**
+ * The authenticated user's full context from POST /main/users/sync in ONE
+ * request: {@code company} (null when not a member) and {@code accessRequest}
+ * (null when there is none). All current-user /main data flows through this.
+ */
+export function fetchSyncProfile(token: string): Promise<SyncProfile> {
+  return rest<RawSyncResponse>('/main/users/sync', { token, method: 'POST' }).then((res) => {
+    const raw = res.data ?? {}
+    return {
+      company: toMyCompanyFromSync(raw),
+      accessRequest: toRequestStatus(raw.accessRequest ?? null),
+    }
+  })
+}
+
+/**
+ * The authenticated user's company membership, or null when not a member.
+ * Kept as a thin wrapper over [fetchSyncProfile] for callers that only need
+ * the membership half of the sync payload.
+ */
 export function fetchMyCompany(token: string): Promise<MyCompany | null> {
-  return rest<{
-    id?: number | string
-    companyId?: number | string | null
-    companyName?: string | null
-    role?: string | null
-    firstName?: string | null
-    lastName?: string | null
-    email?: string | null
-    phone?: string | null
-    office?: RawCompanyOffice | null
-  }>('/main/staff/me', { token }).then((res) => toMyCompany(res.data))
+  return fetchSyncProfile(token).then((r) => r.company)
 }
 
 function toRequestStatus(raw: {

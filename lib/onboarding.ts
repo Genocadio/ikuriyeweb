@@ -68,7 +68,9 @@ export function useOnboarding(
   const checkMembership = useCallback(async (): Promise<void> => {
     if (!token) return
     try {
-      const me = await api.fetchMyCompany(token)
+      // Single sync call carries both the membership AND the access-request
+      // status — no separate /main read for current-user data.
+      const { company: me, accessRequest: pendingAccess } = await api.fetchSyncProfile(token)
       if (me) {
         const needsOffice =
           me.role !== 'DRIVER' && me.companyId != null && me.office == null
@@ -88,13 +90,12 @@ export function useOnboarding(
         }
         return
       }
-      // Not a company member yet — what's the status of any access request?
-      const req = await api.fetchMyCompanyAccessStatus(token)
+      // Not a company member yet — the sync payload carried the request status.
       setState((prev) => ({
         ...prev,
-        pendingAccess: req,
+        pendingAccess: pendingAccess,
         company: null,
-        phase: req == null || req.status === 'REJECTED' ? 'join' : 'waiting',
+        phase: pendingAccess == null || pendingAccess.status === 'REJECTED' ? 'join' : 'waiting',
         error: null,
       }))
     } catch (error) {
