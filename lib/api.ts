@@ -579,7 +579,7 @@ export function initiateDelivery(token: string, packageId: string): Promise<{ in
   return gql<{ initiateDelivery: DeliveryCodeResult }>(
     {
       query: `mutation InitiateDelivery($input: InitiateDeliveryInput!) {
-        initiateDelivery(input: $input) { deliveryPackage { id status } deliveryCode }
+        initiateDelivery(input: $input) { deliveryPackage { id status } }
       }`,
       variables: { input: { packageId } },
       token,
@@ -603,7 +603,7 @@ export function regenerateDeliveryCode(token: string, packageId: string): Promis
   return gql<{ regenerateDeliveryCode: DeliveryCodeResult }>(
     {
       query: `mutation RegenerateDeliveryCode($input: RegenerateDeliveryCodeInput!) {
-        regenerateDeliveryCode(input: $input) { deliveryPackage { id status } deliveryCode }
+        regenerateDeliveryCode(input: $input) { deliveryPackage { id status } }
       }`,
       variables: { input: { packageId } },
       token,

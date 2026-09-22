@@ -14,7 +14,7 @@ import { cn } from '@/lib/utils'
 import { CustodyInbox } from '@/components/workspace/inbox'
 import { PackageDetail } from '@/components/workspace/package-detail'
 import { CreatePackageDialog } from '@/components/workspace/create-package-dialog'
-import { CodePromptDialog, CodeRevealDialog, ConfirmDialog } from '@/components/workspace/dialogs'
+import { CodePromptDialog, ConfirmDialog } from '@/components/workspace/dialogs'
 import { DriverPickerDialog } from '@/components/workspace/driver-picker-dialog'
 
 type FilterKey = 'all' | 'at-office' | 'in-transit' | 'delivered' | 'other'
@@ -82,7 +82,6 @@ export function PackageWorkspace() {
   // detail drawer).
   const [deliverItem, setDeliverItem] = useState<PackageItem | null>(null)
   const [confirmItem, setConfirmItem] = useState<PackageItem | null>(null)
-  const [reveal, setReveal] = useState<{ code: string } | null>(null)
   const [transferItemId, setTransferItemId] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
@@ -100,9 +99,8 @@ export function PackageWorkspace() {
     if (!deliverItem) return
     setBusy(true)
     try {
-      const deliveryCode = await workspace.initiateDelivery(deliverItem.id)
+      await workspace.initiateDelivery(deliverItem.id)
       setDeliverItem(null)
-      setReveal({ code: deliveryCode })
     } catch {
       /* error toasted by the store */
     } finally {
@@ -414,20 +412,12 @@ export function PackageWorkspace() {
         key={confirmItem ? `confirm-${confirmItem.id}` : 'none'}
         open={Boolean(confirmItem)}
         title={`Enter delivery code for ${confirmItem?.trackingCode ?? ''}`}
-        description="The receiver should share the delivery code if they have not yet confirmed in their app."
+        description="The receiver was sent the delivery code in their app — they should share it with you, or confirm delivery themselves."
         placeholder="000000"
         confirmLabel="Confirm delivery"
-        initialValue={confirmItem ? (workspace.getCode(confirmItem.id) ?? '') : ''}
         busy={busy}
         onConfirm={(code) => void runQuickConfirm(code)}
         onClose={() => setConfirmItem(null)}
-      />
-      <CodeRevealDialog
-        open={Boolean(reveal)}
-        title="Delivery code"
-        description="Share this code with the receiver — they use it to confirm the delivery."
-        code={reveal?.code ?? null}
-        onClose={() => setReveal(null)}
       />
       <DriverPickerDialog
         open={Boolean(transferItemId)}

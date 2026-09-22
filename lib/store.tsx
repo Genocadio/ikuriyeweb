@@ -9,7 +9,6 @@ import { useAuth } from './auth'
 import type { CompanyOffice, DeliveryPackage, Notice, PackageItem, PackageStatus, Transfer, TransferRuleType, User } from './types'
 import { toPackageItem } from './api'
 
-const CODES_KEY = 'cavgo.deliveryCodes'
 const SECURE_KEY = 'cavgo.secureTransferCodes'
 // Page size for the workspace package list — server-side pagination fetches
 // one page at a time; navigating pages replaces the visible list.
@@ -49,7 +48,6 @@ interface WorkspaceState {
   notices: Notice[]
   unread: number
   drivers: User[]
-  codes: Record<string, string>
   secureCodes: Record<string, string>
   /** The worker's currently assigned working office (drives the locked package origin). */
   office: CompanyOffice | null
@@ -67,9 +65,9 @@ interface WorkspaceActions {
   }>
   assignDriver: (packageId: string, driverId: string) => Promise<void>
   advanceStatus: (packageId: string, status: PackageStatus, opts?: { notes?: string }) => Promise<void>
-  initiateDelivery: (packageId: string) => Promise<string>
+  initiateDelivery: (packageId: string) => Promise<void>
   confirmDelivery: (packageId: string, deliveryCode: string) => Promise<void>
-  regenerateDeliveryCode: (packageId: string) => Promise<string>
+  regenerateDeliveryCode: (packageId: string) => Promise<void>
   createTransferForPackages: (packageIds: string[], ruleType: TransferRuleType, matchUserId?: string | null) => Promise<Transfer>
   cancelTransfer: (transferId: string) => Promise<void>
   confirmTransfer: (transferId: string) => Promise<void>
@@ -77,8 +75,6 @@ interface WorkspaceActions {
   regenerateTransferCode: (transferId: string) => Promise<string>
   markRead: (viewerId: string) => Promise<void>
   markAllRead: () => Promise<void>
-  saveCode: (packageId: string, code: string) => void
-  getCode: (packageId: string) => string | undefined
   saveSecureCode: (transferId: string, code: string) => void
   getSecureCode: (transferId: string) => string | undefined
 }
@@ -128,7 +124,6 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     notices: [],
     unread: 0,
     drivers: [],
-    codes: readRecord(CODES_KEY),
     secureCodes: readRecord(SECURE_KEY),
     office: null,
   })
@@ -496,15 +491,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     }
   }, [status, token, patch])
 
-  // ── Local key-value helpers (delivery codes / secure transfer codes) ────
-
-  const saveCode = useCallback((packageId: string, code: string) => {
-    const next = { ...readRecord(CODES_KEY), [packageId]: code }
-    writeRecord(CODES_KEY, next)
-    patch({ codes: next })
-  }, [patch])
-
-  const getCode = useCallback((packageId: string) => readRecord(CODES_KEY)[packageId], [])
+  // ── Local key-value helpers (secure transfer codes) ────────────────
 
   const saveSecureCode = useCallback((transferId: string, code: string) => {
     const next = { ...readRecord(SECURE_KEY), [transferId]: code }
@@ -622,10 +609,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
 
   const initiateDelivery = useCallback(
     async (packageId: string) => {
-      const result = await runMutation(() => api.initiateDelivery(token!, packageId))
-      const code = result.initiateDelivery.deliveryCode
-      saveCode(packageId, code)
-      return code
+      await runMutation(() => api.initiateDelivery(token!, packageId))
     },
     [token, runMutation],
   )
@@ -640,10 +624,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
 
   const regenerateDeliveryCode = useCallback(
     async (packageId: string) => {
-      const result = await runMutation(() => api.regenerateDeliveryCode(token!, packageId))
-      const code = result.regenerateDeliveryCode.deliveryCode
-      saveCode(packageId, code)
-      return code
+      await runMutation(() => api.regenerateDeliveryCode(token!, packageId))
     },
     [token, runMutation],
   )
@@ -757,8 +738,6 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
       regenerateTransferCode,
       markRead,
       markAllRead,
-      saveCode,
-      getCode,
       saveSecureCode,
       getSecureCode,
     }),
@@ -766,7 +745,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
       state, refresh, goToPage, acceptTransfer, claimPackage, createPackage, assignDriver, advanceStatus,
       initiateDelivery, confirmDelivery, regenerateDeliveryCode, createTransferForPackages,
       cancelTransfer, confirmTransfer, rejectTransfer, regenerateTransferCode, markRead, markAllRead,
-      saveCode, getCode, saveSecureCode, getSecureCode,
+      saveSecureCode, getSecureCode,
     ],
   )
 

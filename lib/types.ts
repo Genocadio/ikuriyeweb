@@ -239,7 +239,8 @@ export interface PackageCreation {
 
 export interface DeliveryCodeResult {
   deliveryPackage: DeliveryPackage
-  deliveryCode: string
+  /** Never returned to the initiating worker/driver — they must obtain it from the recipient. */
+  deliveryCode?: string | null
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
